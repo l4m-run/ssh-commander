@@ -4,4 +4,3 @@ pytest-qt>=4.4.0
 ruff>=0.3.0
 mypy>=1.8.0
 pyinstaller>=6.0.0
-pyinstaller
