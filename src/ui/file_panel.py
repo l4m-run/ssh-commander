@@ -13,7 +13,10 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt, Signal
+import json
+
+from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtGui import QDrag
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -68,6 +71,8 @@ class FilePanel(QWidget):
     file_selected = Signal(object)
     path_changed = Signal(str)
     transfer_requested = Signal(list, str)
+    # Сигнал: файлы были сброшены на эту панель (list[dict], source_panel_id)
+    drop_received = Signal(list, str)
 
     def __init__(
         self,
@@ -151,6 +156,17 @@ class FilePanel(QWidget):
         self._tree.itemDoubleClicked.connect(self._on_item_double_click)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._show_context_menu)
+
+        # Drag & Drop
+        self._tree.setDragEnabled(True)
+        self._tree.setAcceptDrops(True)
+        self._tree.setDragDropMode(QTreeWidget.DragDropMode.DragDrop)
+        self._tree.setDefaultDropAction(Qt.DropAction.CopyAction)
+        # Перехватываем события drag/drop вручную
+        self._tree.startDrag = self._start_drag
+        self._tree.dragEnterEvent = self._drag_enter
+        self._tree.dragMoveEvent = self._drag_move
+        self._tree.dropEvent = self._drop_event
 
         # Настройка колонок
         header = self._tree.header()
@@ -443,3 +459,78 @@ class FilePanel(QWidget):
     def cleanup(self) -> None:
         """Очистка при закрытии."""
         self._disconnect_sftp()
+
+    # --- Drag & Drop ---
+
+    def _start_drag(self, supported_actions) -> None:
+        """Начало перетаскивания файлов."""
+        entries = self.get_selected_entries()
+        if not entries:
+            return
+
+        # Сериализуем данные файлов в MIME
+        data = []
+        for e in entries:
+            data.append({
+                "name": e.name,
+                "path": e.path,
+                "is_dir": e.is_dir,
+                "size": e.size,
+            })
+
+        mime = QMimeData()
+        mime.setData(
+            "application/x-ssh-commander-files",
+            json.dumps(data).encode("utf-8"),
+        )
+        # Сохраняем ID панели-источника
+        mime.setData(
+            "application/x-ssh-commander-source",
+            str(id(self)).encode("utf-8"),
+        )
+
+        drag = QDrag(self._tree)
+        drag.setMimeData(mime)
+        names = ", ".join(e.name for e in entries[:3])
+        if len(entries) > 3:
+            names += f" ... (+{len(entries) - 3})"
+        drag.exec(Qt.DropAction.CopyAction)
+
+    def _drag_enter(self, event) -> None:
+        """Принять drag с нашим MIME-типом."""
+        if event.mimeData().hasFormat("application/x-ssh-commander-files"):
+            # Не принимаем drop на себя же
+            source_id = event.mimeData().data(
+                "application/x-ssh-commander-source"
+            ).data().decode("utf-8")
+            if source_id != str(id(self)):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def _drag_move(self, event) -> None:
+        """Продолжение drag."""
+        if event.mimeData().hasFormat("application/x-ssh-commander-files"):
+            source_id = event.mimeData().data(
+                "application/x-ssh-commander-source"
+            ).data().decode("utf-8")
+            if source_id != str(id(self)):
+                event.acceptProposedAction()
+                return
+        event.ignore()
+
+    def _drop_event(self, event) -> None:
+        """Обработка drop - отправляем сигнал."""
+        mime = event.mimeData()
+        if not mime.hasFormat("application/x-ssh-commander-files"):
+            event.ignore()
+            return
+
+        raw = mime.data("application/x-ssh-commander-files").data()
+        source_id = mime.data(
+            "application/x-ssh-commander-source"
+        ).data().decode("utf-8")
+
+        files_data = json.loads(raw.decode("utf-8"))
+        self.drop_received.emit(files_data, source_id)
+        event.acceptProposedAction()

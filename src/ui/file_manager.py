@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import TYPE_CHECKING
 
@@ -78,6 +79,14 @@ class FileManager(QWidget):
         splitter.setSizes([500, 500])
 
         layout.addWidget(splitter, stretch=1)
+
+        # Подключаем Drag & Drop
+        self._left_panel.drop_received.connect(
+            lambda data, src_id: self._on_drop(data, src_id, self._left_panel)
+        )
+        self._right_panel.drop_received.connect(
+            lambda data, src_id: self._on_drop(data, src_id, self._right_panel)
+        )
 
         # Кнопки действий
         actions_row = QHBoxLayout()
@@ -167,6 +176,9 @@ class FileManager(QWidget):
         # Определяем направление
         if src_conn is None and dst_conn is None:
             # Локальная -> Локальная: обычное копирование
+            files = self._check_overwrite_local(files, dest_path)
+            if not files:
+                return
             self._local_copy(files, dest_path)
             dest_panel._refresh()
             return
@@ -177,6 +189,13 @@ class FileManager(QWidget):
             direction = TransferDirection.DOWNLOAD
         else:
             direction = TransferDirection.SERVER_TO_SERVER
+
+        # Проверяем перезапись для удалённых файлов
+        files = self._check_overwrite_remote(
+            files, dest_path, dest_panel, direction,
+        )
+        if not files:
+            return
 
         # Создаём worker
         self._worker = TransferWorker()
@@ -276,3 +295,96 @@ class FileManager(QWidget):
             self._worker.wait(2000)
         self._left_panel.cleanup()
         self._right_panel.cleanup()
+
+    # --- Проверка перезаписи ---
+
+    def _check_overwrite_local(
+        self, files: list[FileEntry], dest_path: str,
+    ) -> list[FileEntry]:
+        """Проверить существование файлов локально."""
+        existing = []
+        for f in files:
+            dest = os.path.join(dest_path, os.path.basename(f.path))
+            if os.path.exists(dest):
+                existing.append(f.name)
+
+        if existing:
+            return self._ask_overwrite(files, existing)
+        return files
+
+    def _check_overwrite_remote(
+        self,
+        files: list[FileEntry],
+        dest_path: str,
+        dest_panel: FilePanel,
+        direction: TransferDirection,
+    ) -> list[FileEntry]:
+        """Проверить существование файлов на приёмнике."""
+        # Собираем имена файлов в директории назначения
+        if direction == TransferDirection.DOWNLOAD:
+            # Назначение - локальная
+            return self._check_overwrite_local(files, dest_path)
+
+        # Назначение - сервер: смотрим что есть в панели
+        dest_names = {e.name for e in dest_panel._entries}
+        existing = [
+            f.name for f in files
+            if os.path.basename(f.path) in dest_names
+        ]
+
+        if existing:
+            return self._ask_overwrite(files, existing)
+        return files
+
+    def _ask_overwrite(
+        self, files: list[FileEntry], existing: list[str],
+    ) -> list[FileEntry]:
+        """Спросить пользователя о перезаписи."""
+        names_preview = "\n".join(existing[:10])
+        if len(existing) > 10:
+            names_preview += f"\n... и ещё {len(existing) - 10}"
+
+        reply = QMessageBox.question(
+            self,
+            "Перезапись файлов",
+            f"Следующие файлы уже существуют:\n\n{names_preview}"
+            f"\n\nПерезаписать?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            return files
+        return []
+
+    # --- Drag & Drop ---
+
+    def _on_drop(
+        self,
+        files_data: list[dict],
+        source_panel_id: str,
+        dest_panel: FilePanel,
+    ) -> None:
+        """Обработка drop файлов на панель."""
+        # Определяем панель-источник
+        if str(id(self._left_panel)) == source_panel_id:
+            source_panel = self._left_panel
+        elif str(id(self._right_panel)) == source_panel_id:
+            source_panel = self._right_panel
+        else:
+            return
+
+        # Восстанавливаем FileEntry из сериализованных данных
+        entries = [
+            FileEntry(
+                name=d["name"],
+                path=d["path"],
+                is_dir=d["is_dir"],
+                size=d["size"],
+            )
+            for d in files_data
+        ]
+
+        self._start_transfer(
+            entries,
+            source_panel=source_panel,
+            dest_panel=dest_panel,
+        )
