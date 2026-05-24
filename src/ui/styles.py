@@ -7,7 +7,10 @@
 from pathlib import Path
 
 # Путь к иконке закрытия вкладки
-_close_icon_path = str(Path(__file__).parent / "icons" / "close.svg").replace("\\", "/")
+_icons_dir = Path(__file__).parent / "icons"
+_close_icon_path = str(_icons_dir / "close.svg").replace("\\", "/")
+_arrow_up_path = str(_icons_dir / "arrow_up.svg").replace("\\", "/")
+_arrow_down_path = str(_icons_dir / "arrow_down.svg").replace("\\", "/")
 
 # Палитра: оттенки серого
 COLORS = {
@@ -238,18 +241,14 @@ def get_app_stylesheet() -> str:
         background-color: {COLORS["bg_button_hover"]};
     }}
     QSpinBox::up-arrow {{
-        image: none;
-        width: 0; height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-bottom: 6px solid {COLORS["text_on_button"]};
+        image: url({_arrow_up_path});
+        width: 10px;
+        height: 10px;
     }}
     QSpinBox::down-arrow {{
-        image: none;
-        width: 0; height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-top: 6px solid {COLORS["text_on_button"]};
+        image: url({_arrow_down_path});
+        width: 10px;
+        height: 10px;
     }}
 
     /* === Диалоги === */
