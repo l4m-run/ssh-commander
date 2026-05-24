@@ -310,8 +310,12 @@ class TerminalWidget(QAbstractScrollArea):
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         painter.setFont(self._font)
 
+        vp_rect = self.viewport().rect()
+        # Клиппинг - символы не выйдут за границы виджета
+        painter.setClipRect(vp_rect)
+
         # Фон терминала
-        painter.fillRect(self.viewport().rect(), self._default_bg)
+        painter.fillRect(vp_rect, self._default_bg)
 
         cw = self._char_width
         ch = self._char_height
@@ -319,10 +323,12 @@ class TerminalWidget(QAbstractScrollArea):
         current_font = self._font
 
         # Отрисовка каждого символа
-        for y in range(self._rows):
+        screen_lines = self._screen.lines
+        screen_cols = self._screen.columns
+        for y in range(min(self._rows, screen_lines)):
             py = y * ch
             row = self._screen.buffer[y]
-            for x in range(self._cols):
+            for x in range(min(self._cols, screen_cols)):
                 char = row[x]
                 px = x * cw
 
@@ -612,6 +618,9 @@ class TerminalWidget(QAbstractScrollArea):
         if new_cols != self._cols or new_rows != self._rows:
             self._cols = new_cols
             self._rows = new_rows
+
+            # Сбрасываем выделение при resize
+            self._clear_selection()
 
             # Пересоздаём экран pyte с новым размером
             self._screen.resize(self._rows, self._cols)
