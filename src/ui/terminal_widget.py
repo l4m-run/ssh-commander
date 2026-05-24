@@ -324,12 +324,31 @@ class TerminalWidget(QAbstractScrollArea):
         ca = self._char_ascent
         current_font = self._font
 
-        # Отрисовка каждого символа
-        screen_lines = self._screen.lines
+        # Собираем видимые строки с учётом скролла
+        history = list(self._screen.history.top)
+        history_len = len(history)
         screen_cols = self._screen.columns
-        for y in range(min(self._rows, screen_lines)):
+
+        for y in range(self._rows):
             py = y * ch
-            row = self._screen.buffer[y]
+
+            # Определяем источник строки
+            # scroll_offset=0 -> показываем текущий буфер
+            # scroll_offset=N -> сдвигаемся на N строк вверх в историю
+            history_row_idx = history_len - self._scroll_offset + y
+            if history_row_idx < 0:
+                # За пределами истории - пустая строка
+                continue
+            if history_row_idx < history_len:
+                # Строка из истории
+                row = history[history_row_idx]
+            else:
+                # Строка из текущего буфера
+                buffer_y = history_row_idx - history_len
+                if buffer_y >= self._screen.lines:
+                    continue
+                row = self._screen.buffer[buffer_y]
+
             for x in range(min(self._cols, screen_cols)):
                 char = row[x]
                 px = x * cw
@@ -390,8 +409,8 @@ class TerminalWidget(QAbstractScrollArea):
                             self._selection_color,
                         )
 
-        # Курсор
-        if self.hasFocus() and self._selection_start is None:
+        # Курсор (только если показываем текущий буфер, не историю)
+        if self.hasFocus() and self._selection_start is None and self._scroll_offset == 0:
             cx = self._screen.cursor.x * cw
             cy = self._screen.cursor.y * ch
             painter.setPen(self._cursor_color)
