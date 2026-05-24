@@ -1,35 +1,36 @@
 # -*- coding: utf-8 -*-
 """Стили и тема приложения.
 
-Светлая тема с современным дизайном.
+Светлая тема в оттенках серого.
 """
 
-# Основная палитра
+# Палитра: оттенки серого
 COLORS = {
-    "bg_primary": "#FAFBFC",
-    "bg_secondary": "#F0F2F5",
+    "bg_primary": "#F7F7F8",
+    "bg_secondary": "#EDEDEF",
     "bg_sidebar": "#FFFFFF",
     "bg_terminal": "#1E1E2E",
     "bg_input": "#FFFFFF",
-    "bg_hover": "#E8ECF0",
-    "bg_selected": "#D0E3FF",
-    "bg_button": "#4A90D9",
-    "bg_button_hover": "#357ABD",
-    "bg_button_danger": "#E74C3C",
+    "bg_hover": "#E5E5E7",
+    "bg_selected": "#D4D4D8",
+    "bg_button": "#52525B",
+    "bg_button_hover": "#3F3F46",
+    "bg_button_pressed": "#27272A",
+    "bg_button_danger": "#71717A",
     "bg_tab_active": "#FFFFFF",
-    "bg_tab_inactive": "#E8ECF0",
-    "text_primary": "#1A1A2E",
-    "text_secondary": "#6B7280",
+    "bg_tab_inactive": "#E5E5E7",
+    "text_primary": "#18181B",
+    "text_secondary": "#71717A",
     "text_on_button": "#FFFFFF",
     "text_terminal": "#CDD6F4",
-    "border": "#D1D5DB",
-    "border_focus": "#4A90D9",
-    "accent": "#4A90D9",
+    "border": "#D4D4D8",
+    "border_focus": "#71717A",
+    "accent": "#52525B",
     "success": "#27AE60",
     "warning": "#F39C12",
     "error": "#E74C3C",
-    "scrollbar_bg": "#F0F2F5",
-    "scrollbar_handle": "#C1C7CD",
+    "scrollbar_bg": "#EDEDEF",
+    "scrollbar_handle": "#A1A1AA",
 }
 
 # Шрифты
@@ -59,22 +60,30 @@ def get_app_stylesheet() -> str:
         border-bottom: 1px solid {COLORS["border"]};
         padding: 2px;
     }}
+    QMenuBar::item {{
+        color: {COLORS["text_primary"]};
+        padding: 4px 8px;
+        border-radius: 4px;
+    }}
     QMenuBar::item:selected {{
         background-color: {COLORS["bg_hover"]};
-        border-radius: 4px;
+        color: {COLORS["text_primary"]};
     }}
     QMenu {{
         background-color: {COLORS["bg_sidebar"]};
         border: 1px solid {COLORS["border"]};
         border-radius: 6px;
         padding: 4px;
+        color: {COLORS["text_primary"]};
     }}
     QMenu::item {{
         padding: 6px 24px;
         border-radius: 4px;
+        color: {COLORS["text_primary"]};
     }}
     QMenu::item:selected {{
-        background-color: {COLORS["bg_hover"]};
+        background-color: {COLORS["bg_selected"]};
+        color: {COLORS["text_primary"]};
     }}
     QToolBar {{
         background-color: {COLORS["bg_sidebar"]};
@@ -90,6 +99,7 @@ def get_app_stylesheet() -> str:
     }}
     QToolButton:hover {{
         background-color: {COLORS["bg_hover"]};
+        color: {COLORS["text_primary"]};
     }}
 
     /* === Sidebar (QTreeWidget) === */
@@ -99,14 +109,17 @@ def get_app_stylesheet() -> str:
         border-right: 1px solid {COLORS["border"]};
         outline: none;
         font-size: {FONTS["size_normal"]};
+        color: {COLORS["text_primary"]};
     }}
     QTreeWidget::item {{
         padding: 6px 8px;
         border-radius: 4px;
         margin: 1px 4px;
+        color: {COLORS["text_primary"]};
     }}
     QTreeWidget::item:hover {{
         background-color: {COLORS["bg_hover"]};
+        color: {COLORS["text_primary"]};
     }}
     QTreeWidget::item:selected {{
         background-color: {COLORS["bg_selected"]};
@@ -118,6 +131,7 @@ def get_app_stylesheet() -> str:
     QHeaderView::section {{
         background-color: {COLORS["bg_sidebar"]};
         border: none;
+        border-bottom: 1px solid {COLORS["border"]};
         padding: 6px;
         font-weight: bold;
         color: {COLORS["text_secondary"]};
@@ -149,6 +163,7 @@ def get_app_stylesheet() -> str:
     }}
     QTabBar::tab:hover:!selected {{
         background-color: {COLORS["bg_hover"]};
+        color: {COLORS["text_primary"]};
     }}
     QTabBar::close-button {{
         image: none;
@@ -168,9 +183,10 @@ def get_app_stylesheet() -> str:
     }}
     QPushButton:hover {{
         background-color: {COLORS["bg_button_hover"]};
+        color: {COLORS["text_on_button"]};
     }}
     QPushButton:pressed {{
-        background-color: {COLORS["accent"]};
+        background-color: {COLORS["bg_button_pressed"]};
     }}
     QPushButton:disabled {{
         background-color: {COLORS["bg_hover"]};
@@ -196,6 +212,7 @@ def get_app_stylesheet() -> str:
     /* === Диалоги === */
     QDialog {{
         background-color: {COLORS["bg_primary"]};
+        color: {COLORS["text_primary"]};
     }}
 
     /* === Разделители === */
@@ -246,6 +263,7 @@ def get_app_stylesheet() -> str:
         margin-top: 12px;
         padding-top: 16px;
         font-weight: bold;
+        color: {COLORS["text_primary"]};
     }}
     QGroupBox::title {{
         subcontrol-origin: margin;
@@ -260,6 +278,7 @@ def get_app_stylesheet() -> str:
         border-radius: 6px;
         padding: 6px 12px;
         min-width: 100px;
+        color: {COLORS["text_primary"]};
     }}
     QComboBox:focus {{
         border-color: {COLORS["border_focus"]};
@@ -267,5 +286,41 @@ def get_app_stylesheet() -> str:
     QComboBox::drop-down {{
         border: none;
         width: 24px;
+    }}
+    QComboBox QAbstractItemView {{
+        background-color: {COLORS["bg_sidebar"]};
+        border: 1px solid {COLORS["border"]};
+        color: {COLORS["text_primary"]};
+        selection-background-color: {COLORS["bg_selected"]};
+        selection-color: {COLORS["text_primary"]};
+    }}
+
+    /* === ProgressBar === */
+    QProgressBar {{
+        background-color: {COLORS["bg_secondary"]};
+        border: 1px solid {COLORS["border"]};
+        border-radius: 4px;
+        text-align: center;
+        color: {COLORS["text_primary"]};
+        height: 20px;
+    }}
+    QProgressBar::chunk {{
+        background-color: {COLORS["accent"]};
+        border-radius: 3px;
+    }}
+
+    /* === MessageBox / InputDialog === */
+    QMessageBox {{
+        background-color: {COLORS["bg_primary"]};
+        color: {COLORS["text_primary"]};
+    }}
+    QInputDialog {{
+        background-color: {COLORS["bg_primary"]};
+        color: {COLORS["text_primary"]};
+    }}
+
+    /* === DialogButtonBox === */
+    QDialogButtonBox QPushButton {{
+        min-width: 80px;
     }}
     """
