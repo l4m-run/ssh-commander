@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+
+# Виртуальное окружение
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Сборка
+dist/
+build/
+*.spec.bak
+
+# Данные приложения
+*.db
+.env
+
+# Рабочая документация
+.docs/
