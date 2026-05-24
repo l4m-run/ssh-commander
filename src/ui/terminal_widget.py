@@ -17,6 +17,7 @@ from PySide6.QtGui import (
     QFont,
     QFontMetricsF,
     QKeyEvent,
+    QMouseEvent,
     QPainter,
     QPaintEvent,
     QResizeEvent,
@@ -152,6 +153,12 @@ class TerminalWidget(QAbstractScrollArea):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
         self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+
+        # Выделение текста мышью
+        self._selection_start: tuple[int, int] | None = None  # (col, row)
+        self._selection_end: tuple[int, int] | None = None
+        self._selecting = False
+        self._selection_color = QColor(74, 144, 217, 80)  # Полупрозрачный синий
 
         # Таймер перерисовки (ограничиваем частоту)
         self._dirty = False
@@ -363,8 +370,20 @@ class TerminalWidget(QAbstractScrollArea):
         if current_font is not self._font:
             painter.setFont(self._font)
 
+        # Подсветка выделения
+        if self._selection_start is not None and self._selection_end is not None:
+            sel_start, sel_end = self._get_selection_range()
+            for y in range(self._rows):
+                for x in range(self._cols):
+                    if self._is_in_selection(x, y, sel_start, sel_end):
+                        painter.fillRect(
+                            int(x * cw), int(y * ch),
+                            int(cw) + 1, int(ch),
+                            self._selection_color,
+                        )
+
         # Курсор
-        if self.hasFocus():
+        if self.hasFocus() and self._selection_start is None:
             cx = self._screen.cursor.x * cw
             cy = self._screen.cursor.y * ch
             painter.setPen(self._cursor_color)
@@ -414,27 +433,164 @@ class TerminalWidget(QAbstractScrollArea):
 
     def _copy_selection(self) -> None:
         """Копировать выделенный текст в буфер обмена."""
-        # TODO: Реализовать выделение текста мышью
         from PySide6.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        # Пока копируем весь видимый текст
-        lines = []
-        for y in range(self._rows):
-            line = ""
-            for x in range(self._cols):
-                line += self._screen.buffer[y][x].data
-            lines.append(line.rstrip())
-        clipboard.setText("\n".join(lines))
+
+        text = self._get_selected_text()
+        if text:
+            QApplication.clipboard().setText(text)
+        # Снимаем выделение после копирования
+        self._clear_selection()
 
     def _paste(self) -> None:
         """Вставить текст из буфера обмена."""
         from PySide6.QtWidgets import QApplication
-        clipboard = QApplication.clipboard()
-        text = clipboard.text()
+        text = QApplication.clipboard().text()
         if text and self._session:
             # Заменяем \n на \r для терминала
             text = text.replace("\n", "\r")
             self._session.write(text.encode("utf-8"))
+
+    # --- Выделение текста мышью ---
+
+    def _pixel_to_cell(self, x: float, y: float) -> tuple[int, int]:
+        """Преобразовать координаты пикселей в позицию символа (col, row)."""
+        col = max(0, min(int(x / self._char_width), self._cols - 1))
+        row = max(0, min(int(y / self._char_height), self._rows - 1))
+        return col, row
+
+    def _get_selection_range(
+        self,
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
+        """Получить нормализованный диапазон выделения (start <= end)."""
+        s = self._selection_start
+        e = self._selection_end
+        if s is None or e is None:
+            return (0, 0), (0, 0)
+        # Нормализация: start должен быть перед end
+        if (s[1], s[0]) > (e[1], e[0]):
+            return e, s
+        return s, e
+
+    def _is_in_selection(
+        self, x: int, y: int,
+        sel_start: tuple[int, int],
+        sel_end: tuple[int, int],
+    ) -> bool:
+        """Проверить, находится ли ячейка (x, y) в выделении."""
+        sx, sy = sel_start
+        ex, ey = sel_end
+        if sy == ey:
+            # Одна строка
+            return y == sy and sx <= x <= ex
+        if y == sy:
+            return x >= sx
+        if y == ey:
+            return x <= ex
+        return sy < y < ey
+
+    def _get_selected_text(self) -> str:
+        """Получить текст выделенной области."""
+        if self._selection_start is None or self._selection_end is None:
+            return ""
+
+        sel_start, sel_end = self._get_selection_range()
+        sx, sy = sel_start
+        ex, ey = sel_end
+
+        lines: list[str] = []
+        for y in range(sy, ey + 1):
+            line = ""
+            x_start = sx if y == sy else 0
+            x_end = ex if y == ey else self._cols - 1
+            for x in range(x_start, x_end + 1):
+                line += self._screen.buffer[y][x].data
+            # Обрезаем пробелы справа для полных строк
+            if y != ey or x_end == self._cols - 1:
+                line = line.rstrip()
+            lines.append(line)
+
+        return "\n".join(lines)
+
+    def _clear_selection(self) -> None:
+        """Снять выделение."""
+        self._selection_start = None
+        self._selection_end = None
+        self._selecting = False
+        self.viewport().update()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        """Начало выделения (ЛКМ) или вставка (ПКМ)."""
+        pos = event.position()
+        if event.button() == Qt.MouseButton.LeftButton:
+            col, row = self._pixel_to_cell(pos.x(), pos.y())
+            self._selection_start = (col, row)
+            self._selection_end = (col, row)
+            self._selecting = True
+            self.viewport().update()
+        elif event.button() == Qt.MouseButton.RightButton:
+            # ПКМ - вставка из буфера обмена (как в PuTTY)
+            self._paste()
+        elif event.button() == Qt.MouseButton.MiddleButton:
+            # Средняя кнопка - вставка из selection buffer (X11)
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtGui import QClipboard
+            text = QApplication.clipboard().text(QClipboard.Mode.Selection)
+            if text and self._session:
+                text = text.replace("\n", "\r")
+                self._session.write(text.encode("utf-8"))
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        """Обновление выделения при движении мыши."""
+        if self._selecting:
+            pos = event.position()
+            col, row = self._pixel_to_cell(pos.x(), pos.y())
+            self._selection_end = (col, row)
+            self.viewport().update()
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        """Окончание выделения."""
+        if event.button() == Qt.MouseButton.LeftButton and self._selecting:
+            self._selecting = False
+            # Если start == end, сбрасываем выделение (это был просто клик)
+            if self._selection_start == self._selection_end:
+                self._clear_selection()
+            else:
+                # Копируем в X11 selection buffer автоматически
+                from PySide6.QtWidgets import QApplication
+                from PySide6.QtGui import QClipboard
+                text = self._get_selected_text()
+                if text:
+                    QApplication.clipboard().setText(
+                        text, QClipboard.Mode.Selection
+                    )
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        """Двойной клик - выделение слова."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position()
+            col, row = self._pixel_to_cell(pos.x(), pos.y())
+            # Находим границы слова
+            buffer_row = self._screen.buffer[row]
+            # Граница влево
+            start = col
+            while start > 0 and buffer_row[start - 1].data not in (" ", ""):
+                start -= 1
+            # Граница вправо
+            end = col
+            while end < self._cols - 1 and buffer_row[end + 1].data not in (" ", ""):
+                end += 1
+            self._selection_start = (start, row)
+            self._selection_end = (end, row)
+            self._selecting = False
+            self.viewport().update()
+            # Копируем в selection buffer
+            from PySide6.QtWidgets import QApplication
+            from PySide6.QtGui import QClipboard
+            text = self._get_selected_text()
+            if text:
+                QApplication.clipboard().setText(
+                    text, QClipboard.Mode.Selection
+                )
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         """Обработка изменения размера виджета."""
