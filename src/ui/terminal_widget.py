@@ -640,15 +640,21 @@ class TerminalWidget(QAbstractScrollArea):
             self._cols = new_cols
             self._rows = new_rows
 
-            # Сбрасываем выделение при resize
+            # Сбрасываем выделение и скролл при resize
             self._clear_selection()
+            self._scroll_offset = 0
 
             # Сначала сообщаем серверу, чтобы он перестроил вывод
             if self._session:
                 self._session.resize_pty(self._cols, self._rows)
 
-            # Потом пересоздаём экран pyte с новым размером
-            self._screen.resize(self._rows, self._cols)
+            # Пересоздаём экран pyte с новым размером (чистый буфер)
+            self._screen = pyte.HistoryScreen(
+                self._cols, self._rows,
+                history=config.terminal_scrollback,
+            )
+            self._screen.set_mode(pyte.modes.LNM)
+            self._stream = pyte.Stream(self._screen)
 
             self.size_changed.emit(self._cols, self._rows)
             self._dirty = True
