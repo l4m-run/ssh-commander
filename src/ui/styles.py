@@ -166,9 +166,16 @@ def get_app_stylesheet() -> str:
         color: {COLORS["text_primary"]};
     }}
     QTabBar::close-button {{
-        image: none;
         subcontrol-position: right;
-        padding: 2px;
+        padding: 4px;
+        margin: 2px;
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        background-color: transparent;
+    }}
+    QTabBar::close-button:hover {{
+        background-color: {COLORS["bg_hover"]};
     }}
 
     /* === Кнопки === */

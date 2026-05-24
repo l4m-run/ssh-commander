@@ -87,35 +87,32 @@ class MainWindow(QMainWindow):
         toolbar.setIconSize(toolbar.iconSize())
         self.addToolBar(toolbar)
 
-        # Новое подключение
-        new_action = QAction("+ Новое подключение", self)
-        new_action.setShortcut("Ctrl+N")
-        new_action.triggered.connect(self._new_connection)
-        toolbar.addAction(new_action)
+        # Основная навигация
+        conn_action = QAction("Подключения", self)
+        conn_action.triggered.connect(self._show_connections)
+        toolbar.addAction(conn_action)
 
-        toolbar.addSeparator()
-
-        # Быстрое подключение
-        quick_action = QAction("Быстрое подключение", self)
-        quick_action.setShortcut("Ctrl+K")
-        quick_action.triggered.connect(self._quick_connect)
-        toolbar.addAction(quick_action)
-
-        toolbar.addSeparator()
-
-        # Файловый менеджер
         files_action = QAction("Файлы", self)
         files_action.setShortcut("Ctrl+F")
         files_action.triggered.connect(self._open_file_manager)
         toolbar.addAction(files_action)
 
-        # Разделитель + смена пароля (справа)
-        spacer = QWidget()
-        spacer.setSizePolicy(
-            spacer.sizePolicy().horizontalPolicy(),
-            spacer.sizePolicy().verticalPolicy(),
-        )
+        toolbar.addSeparator()
+
+        # Контекстные кнопки для режима подключений
+        self._new_conn_action = QAction("+ Новое", self)
+        self._new_conn_action.setShortcut("Ctrl+N")
+        self._new_conn_action.triggered.connect(self._new_connection)
+        toolbar.addAction(self._new_conn_action)
+
+        self._quick_conn_action = QAction("Быстрое подключение", self)
+        self._quick_conn_action.setShortcut("Ctrl+K")
+        self._quick_conn_action.triggered.connect(self._quick_connect)
+        toolbar.addAction(self._quick_conn_action)
+
+        # Spacer + смена пароля (справа)
         from PySide6.QtWidgets import QSizePolicy
+        spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
@@ -428,10 +425,16 @@ class MainWindow(QMainWindow):
         if isinstance(widget, TerminalWidget):
             widget.setFocus()
 
-        # Скрываем боковые панели для файлового менеджера
+        # Защита от раннего вызова (при инициализации)
+        if not hasattr(self, "_sidebar"):
+            return
+
+        # Скрываем боковые панели и кнопки подключений для файлового менеджера
         is_file_manager = isinstance(widget, FileManager)
         self._sidebar.setVisible(not is_file_manager)
         self._command_panel.setVisible(not is_file_manager)
+        self._new_conn_action.setVisible(not is_file_manager)
+        self._quick_conn_action.setVisible(not is_file_manager)
 
     def _execute_saved_command(self, command_text: str) -> None:
         """Выполнить сохранённую команду в активном терминале."""
@@ -511,6 +514,12 @@ class MainWindow(QMainWindow):
 
     def _open_file_manager(self) -> None:
         """Открыть файловый менеджер как новую вкладку."""
+        # Если уже есть открытая вкладка файлов, переключиться на неё
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), FileManager):
+                self._tabs.setCurrentIndex(i)
+                return
+
         fm = FileManager(self._db)
         self._file_managers.append(fm)
 
@@ -518,8 +527,19 @@ class MainWindow(QMainWindow):
         if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
             self._tabs.removeTab(0)
 
-        tab_idx = self._tabs.addTab(fm, "📂 Файлы")
+        tab_idx = self._tabs.addTab(fm, "Файлы")
         self._tabs.setCurrentIndex(tab_idx)
+
+    def _show_connections(self) -> None:
+        """Переключиться на режим подключений."""
+        # Ищем первую не-файловую вкладку (терминал или placeholder)
+        for i in range(self._tabs.count()):
+            if not isinstance(self._tabs.widget(i), FileManager):
+                self._tabs.setCurrentIndex(i)
+                return
+        # Если все вкладки - файлы, создаём placeholder
+        self._tabs.addTab(self._empty_label, "Начало")
+        self._tabs.setCurrentWidget(self._empty_label)
 
     def _change_master_password(self) -> None:
         """Диалог смены мастер-пароля."""
