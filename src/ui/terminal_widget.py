@@ -646,22 +646,27 @@ class TerminalWidget(QAbstractScrollArea):
             self._cols = new_cols
             self._rows = new_rows
 
-            # Сбрасываем выделение и скролл
+            # Сбрасываем выделение
             self._clear_selection()
             self._scroll_offset = 0
 
-            # Resize pyte сразу (чтобы paintEvent не лез за границы)
-            self._screen.resize(self._rows, self._cols)
+            # Перерисовка с clipRect (буфер pyte НЕ трогаем)
             self._dirty = True
 
-            # PTY resize серверу через debounce (когда пользователь перестанет тянуть)
+            # Настоящий resize (pyte + PTY) через debounce
             self._resize_timer.start()
 
     def _apply_resize(self) -> None:
-        """Применить resize после debounce."""
+        """Применить resize после окончания изменения размера окна."""
+        # Resize pyte буфера
+        self._screen.resize(self._rows, self._cols)
+
+        # Сообщаем серверу новый размер
         if self._session:
             self._session.resize_pty(self._cols, self._rows)
+
         self.size_changed.emit(self._cols, self._rows)
+        self._dirty = True
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Обработка прокрутки мышью."""
