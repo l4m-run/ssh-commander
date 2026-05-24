@@ -47,6 +47,7 @@ from src.core.ssh_manager import SSHSession
 from src.models.connection import Connection
 from src.ui.command_panel import CommandPanel
 from src.ui.connection_dialog import ConnectionDialog
+from src.ui.file_manager import FileManager
 from src.ui.terminal_widget import TerminalWidget
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._db = db
         self._sessions: dict[int, SSHSession] = {}
+        self._file_managers: list[FileManager] = []
 
         self.setWindowTitle("SSH Commander")
         self.setMinimumSize(1024, 600)
@@ -95,6 +97,14 @@ class MainWindow(QMainWindow):
         quick_action.setShortcut("Ctrl+K")
         quick_action.triggered.connect(self._quick_connect)
         toolbar.addAction(quick_action)
+
+        toolbar.addSeparator()
+
+        # Файловый менеджер
+        files_action = QAction("Файлы", self)
+        files_action.setShortcut("Ctrl+F")
+        files_action.triggered.connect(self._open_file_manager)
+        toolbar.addAction(files_action)
 
     def _setup_ui(self) -> None:
         """Создание основного интерфейса."""
@@ -479,10 +489,24 @@ class MainWindow(QMainWindow):
             self._db.delete_connection(conn_id)
             self._refresh_connections()
 
+    def _open_file_manager(self) -> None:
+        """Открыть файловый менеджер как новую вкладку."""
+        fm = FileManager(self._db)
+        self._file_managers.append(fm)
+
+        # Удаляем placeholder если он есть
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(fm, "📂 Файлы")
+        self._tabs.setCurrentIndex(tab_idx)
+
     def closeEvent(self, event) -> None:
         """Закрытие приложения - отключаем все сессии."""
         for session in self._sessions.values():
             session.disconnect()
             session.wait(1000)
+        for fm in self._file_managers:
+            fm.cleanup()
         self._db.close()
         event.accept()
