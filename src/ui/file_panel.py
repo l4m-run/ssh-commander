@@ -106,15 +106,26 @@ class FilePanel(QWidget):
 
         # Строка пути
         path_row = QHBoxLayout()
-        self._up_btn = QPushButton("↑")
-        self._up_btn.setFixedSize(28, 28)
-        self._up_btn.setToolTip("Вверх")
+        path_row.setSpacing(2)
+
+        nav_btn_style = (
+            "QPushButton { background: #E5E5E7; color: #18181B;"
+            " border: 1px solid #D4D4D8; border-radius: 4px;"
+            " padding: 2px 8px; font-weight: bold; font-size: 13px; }"
+            "QPushButton:hover { background: #D4D4D8; }"
+        )
+
+        self._up_btn = QPushButton("Up")
+        self._up_btn.setFixedHeight(28)
+        self._up_btn.setToolTip("Вверх (родительская директория)")
+        self._up_btn.setStyleSheet(nav_btn_style)
         self._up_btn.clicked.connect(self._go_up)
         path_row.addWidget(self._up_btn)
 
-        self._home_btn = QPushButton("⌂")
-        self._home_btn.setFixedSize(28, 28)
-        self._home_btn.setToolTip("Домой")
+        self._home_btn = QPushButton("Home")
+        self._home_btn.setFixedHeight(28)
+        self._home_btn.setToolTip("Домашняя директория")
+        self._home_btn.setStyleSheet(nav_btn_style)
         self._home_btn.clicked.connect(self._go_home)
         path_row.addWidget(self._home_btn)
 
@@ -122,9 +133,10 @@ class FilePanel(QWidget):
         self._path_edit.returnPressed.connect(self._on_path_entered)
         path_row.addWidget(self._path_edit)
 
-        self._refresh_btn = QPushButton("⟳")
-        self._refresh_btn.setFixedSize(28, 28)
-        self._refresh_btn.setToolTip("Обновить")
+        self._refresh_btn = QPushButton("Обновить")
+        self._refresh_btn.setFixedHeight(28)
+        self._refresh_btn.setToolTip("Обновить список файлов")
+        self._refresh_btn.setStyleSheet(nav_btn_style)
         self._refresh_btn.clicked.connect(self._refresh)
         path_row.addWidget(self._refresh_btn)
 
