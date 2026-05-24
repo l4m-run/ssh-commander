@@ -84,6 +84,15 @@ class MasterPasswordDialog(QDialog):
             title.setStyleSheet("font-size: 18px; font-weight: bold;")
             layout.addWidget(title)
 
+            hint = QLabel(
+                "У вас 3 попытки для ввода пароля.\n"
+                "После 3 неверных попыток приложение закроется.\n"
+                "Данные не удаляются - перезапустите и попробуйте снова."
+            )
+            hint.setStyleSheet("color: #71717A; font-size: 12px;")
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+
             self._password_edit = QLineEdit()
             self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
             self._password_edit.setPlaceholderText("Мастер-пароль")

@@ -235,3 +235,16 @@ class Database:
         """Удалить команду по ID."""
         self.conn.execute("DELETE FROM commands WHERE id = ?", (cmd_id,))
         self.conn.commit()
+
+    def update_password(self, conn_id: int, encrypted_password: str) -> None:
+        """Обновить зашифрованный пароль подключения.
+
+        Args:
+            conn_id: ID подключения.
+            encrypted_password: Новый зашифрованный пароль.
+        """
+        self.conn.execute(
+            "UPDATE connections SET encrypted_password = ? WHERE id = ?",
+            (encrypted_password, conn_id),
+        )
+        self.conn.commit()

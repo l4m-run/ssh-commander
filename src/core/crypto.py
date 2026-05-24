@@ -127,6 +127,71 @@ class CryptoManager:
         data = self._fernet.decrypt(ciphertext.encode("utf-8"))
         return data.decode("utf-8")
 
+    def change_password(
+        self, old_password: str, new_password: str,
+    ) -> tuple[bool, str]:
+        """Сменить мастер-пароль.
+
+        Перегенерирует соль и ключ шифрования.
+        Возвращает (success, old_fernet) для перешифровки паролей в БД.
+
+        Args:
+            old_password: Текущий мастер-пароль.
+            new_password: Новый мастер-пароль.
+
+        Returns:
+            (True, "") при успехе, (False, "сообщение об ошибке") при неудаче.
+        """
+        # Проверяем текущий пароль
+        old_key = self._derive_key(old_password)
+        old_fernet = Fernet(old_key)
+
+        verify_path = config.config_dir / "verify"
+        try:
+            data = old_fernet.decrypt(verify_path.read_bytes())
+            if data != b"ssh-commander-verify":
+                return False, "Неверный текущий пароль."
+        except InvalidToken:
+            return False, "Неверный текущий пароль."
+
+        # Генерируем новую соль
+        new_salt = os.urandom(16)
+        self._salt_path.write_bytes(new_salt)
+
+        # Генерируем новый ключ
+        new_key = self._derive_key(new_password)
+        new_fernet = Fernet(new_key)
+
+        # Перешифровываем verify-токен
+        new_token = new_fernet.encrypt(b"ssh-commander-verify")
+        verify_path.write_bytes(new_token)
+
+        # Обновляем текущий fernet
+        self._fernet = new_fernet
+        self._old_fernet = old_fernet
+
+        return True, ""
+
+    def reencrypt(self, ciphertext: str) -> str:
+        """Перешифровать строку старым ключом -> новым ключом.
+
+        Используется при смене мастер-пароля.
+
+        Args:
+            ciphertext: Строка, зашифрованная старым ключом.
+
+        Returns:
+            Строка, зашифрованная новым ключом.
+        """
+        if not hasattr(self, "_old_fernet") or self._old_fernet is None:
+            raise RuntimeError("Нет старого ключа для перешифровки.")
+        if self._fernet is None:
+            raise RuntimeError("Хранилище не разблокировано.")
+
+        plaintext = self._old_fernet.decrypt(ciphertext.encode("utf-8"))
+        new_token = self._fernet.encrypt(plaintext)
+        return new_token.decode("utf-8")
+
 
 # Глобальный экземпляр
 crypto = CryptoManager()

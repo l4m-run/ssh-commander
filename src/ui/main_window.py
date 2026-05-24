@@ -24,6 +24,9 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -105,6 +108,20 @@ class MainWindow(QMainWindow):
         files_action.setShortcut("Ctrl+F")
         files_action.triggered.connect(self._open_file_manager)
         toolbar.addAction(files_action)
+
+        # Разделитель + смена пароля (справа)
+        spacer = QWidget()
+        spacer.setSizePolicy(
+            spacer.sizePolicy().horizontalPolicy(),
+            spacer.sizePolicy().verticalPolicy(),
+        )
+        from PySide6.QtWidgets import QSizePolicy
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        toolbar.addWidget(spacer)
+
+        pwd_action = QAction("Сменить пароль", self)
+        pwd_action.triggered.connect(self._change_master_password)
+        toolbar.addAction(pwd_action)
 
     def _setup_ui(self) -> None:
         """Создание основного интерфейса."""
@@ -500,6 +517,92 @@ class MainWindow(QMainWindow):
 
         tab_idx = self._tabs.addTab(fm, "📂 Файлы")
         self._tabs.setCurrentIndex(tab_idx)
+
+    def _change_master_password(self) -> None:
+        """Диалог смены мастер-пароля."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Смена мастер-пароля")
+        dialog.setMinimumWidth(380)
+        dialog.setModal(True)
+
+        layout = QVBoxLayout(dialog)
+        layout.setSpacing(10)
+
+        form = QFormLayout()
+        old_pwd = QLineEdit()
+        old_pwd.setEchoMode(QLineEdit.EchoMode.Password)
+        old_pwd.setPlaceholderText("Текущий пароль")
+        form.addRow("Текущий:", old_pwd)
+
+        new_pwd = QLineEdit()
+        new_pwd.setEchoMode(QLineEdit.EchoMode.Password)
+        new_pwd.setPlaceholderText("Новый пароль")
+        form.addRow("Новый:", new_pwd)
+
+        confirm_pwd = QLineEdit()
+        confirm_pwd.setEchoMode(QLineEdit.EchoMode.Password)
+        confirm_pwd.setPlaceholderText("Подтвердите новый пароль")
+        form.addRow("Подтвердите:", confirm_pwd)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        # Валидация
+        if not old_pwd.text():
+            QMessageBox.warning(self, "Ошибка", "Введите текущий пароль.")
+            return
+        if len(new_pwd.text()) < 4:
+            QMessageBox.warning(
+                self, "Ошибка",
+                "Минимальная длина нового пароля - 4 символа.",
+            )
+            return
+        if new_pwd.text() != confirm_pwd.text():
+            QMessageBox.warning(self, "Ошибка", "Новые пароли не совпадают.")
+            return
+
+        # Смена пароля
+        success, error = crypto.change_password(
+            old_pwd.text(), new_pwd.text(),
+        )
+        if not success:
+            QMessageBox.warning(self, "Ошибка", error)
+            return
+
+        # Перешифровка всех сохранённых паролей
+        errors_count = 0
+        for conn in self._db.get_all_connections():
+            if conn.encrypted_password:
+                try:
+                    new_enc = crypto.reencrypt(conn.encrypted_password)
+                    self._db.update_password(conn.id, new_enc)
+                except Exception as e:
+                    logger.error(
+                        "Ошибка перешифровки пароля %s: %s",
+                        conn.display_name, e,
+                    )
+                    errors_count += 1
+
+        if errors_count > 0:
+            QMessageBox.warning(
+                self, "Внимание",
+                f"Пароль изменён, но {errors_count} паролей не удалось перешифровать.",
+            )
+        else:
+            QMessageBox.information(
+                self, "Успех",
+                "Мастер-пароль успешно изменён.",
+            )
 
     def closeEvent(self, event) -> None:
         """Закрытие приложения - отключаем все сессии."""
