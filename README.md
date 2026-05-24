@@ -147,14 +147,26 @@ cmd/
 ## Makefile команды
 
 ```bash
-make run        # Запуск из исходников
-make build      # Сборка бинарника (PyInstaller)
-make install    # Установка в систему
-make uninstall  # Удаление из системы
-make lint       # Проверка кода (ruff)
-make test       # Запуск тестов
-make clean      # Очистка артефактов сборки
+make run          # Запуск из исходников
+make run-noauth   # Запуск без мастер-пароля
+make reset        # Сброс всех данных (БД + ключи)
+make build        # Сборка бинарника (PyInstaller)
+make install      # Установка в систему
+make uninstall    # Удаление из системы
+make lint         # Проверка кода (ruff)
+make test         # Запуск тестов
+make clean        # Очистка артефактов сборки
 ```
+
+## CLI-аргументы
+
+```bash
+ssh-commander              # Обычный запуск (с мастер-паролем)
+ssh-commander --no-auth    # Без мастер-пароля
+ssh-commander --reset      # Сброс данных (с подтверждением)
+```
+
+Для бинарника: `./dist/ssh-commander --no-auth`
 
 ## Известные ограничения
 

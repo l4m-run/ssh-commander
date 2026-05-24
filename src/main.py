@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import sys
 
@@ -141,12 +142,30 @@ class MasterPasswordDialog(QDialog):
         return self._password_edit.text()
 
 
+def _parse_args() -> argparse.Namespace:
+    """Парсинг аргументов командной строки."""
+    parser = argparse.ArgumentParser(description="SSH Commander")
+    parser.add_argument(
+        "--no-auth",
+        action="store_true",
+        help="Запуск без мастер-пароля (пароли подключений не шифруются)",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Сброс всех данных (БД, ключи)",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
     """Главная функция запуска приложения.
 
     Returns:
         Код выхода.
     """
+    args = _parse_args()
+
     app = QApplication(sys.argv)
     app.setApplicationName("SSH Commander")
     app.setOrganizationName("ssh-commander")
@@ -154,36 +173,59 @@ def main() -> int:
     # Применяем стили
     app.setStyleSheet(get_app_stylesheet())
 
-    # --- Мастер-пароль ---
-    is_first_run = not crypto.is_initialized
-    max_attempts = 3
-
-    for attempt in range(max_attempts):
-        dialog = MasterPasswordDialog(is_first_run)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            logger.info("Пользователь отменил ввод мастер-пароля")
+    # --- Сброс данных ---
+    if args.reset:
+        import os
+        reply = QMessageBox.warning(
+            None, "Сброс данных",
+            "Все подключения, команды и мастер-пароль будут удалены.\n"
+            "Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
             return 0
+        for path in [config.db_path, config.crypto_key_path]:
+            if os.path.exists(path):
+                os.remove(path)
+                logger.info("Удалён: %s", path)
+        # Переинициализация crypto
+        crypto.__init__()  # type: ignore[misc]
 
-        if crypto.unlock(dialog.password):
-            logger.info("Хранилище разблокировано")
-            break
-        else:
-            remaining = max_attempts - attempt - 1
-            if remaining > 0:
-                QMessageBox.warning(
-                    None,
-                    "Неверный пароль",
-                    f"Неверный мастер-пароль.\nОсталось попыток: {remaining}",
-                )
-            else:
-                QMessageBox.critical(
-                    None,
-                    "Доступ заблокирован",
-                    "Превышено количество попыток.",
-                )
-                return 1
+    # --- Мастер-пароль ---
+    if args.no_auth:
+        # Режим без аутентификации: используем фиксированный ключ
+        crypto.unlock("__no_auth__")
+        logger.info("Запущено без мастер-пароля (--no-auth)")
     else:
-        return 1
+        is_first_run = not crypto.is_initialized
+        max_attempts = 3
+
+        for attempt in range(max_attempts):
+            dialog = MasterPasswordDialog(is_first_run)
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                logger.info("Пользователь отменил ввод мастер-пароля")
+                return 0
+
+            if crypto.unlock(dialog.password):
+                logger.info("Хранилище разблокировано")
+                break
+            else:
+                remaining = max_attempts - attempt - 1
+                if remaining > 0:
+                    QMessageBox.warning(
+                        None,
+                        "Неверный пароль",
+                        f"Неверный мастер-пароль.\nОсталось попыток: {remaining}",
+                    )
+                else:
+                    QMessageBox.critical(
+                        None,
+                        "Доступ заблокирован",
+                        "Превышено количество попыток.",
+                    )
+                    return 1
+        else:
+            return 1
 
     # --- Инициализация БД ---
     db = Database(config.db_path)
@@ -199,3 +241,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+

@@ -1,4 +1,4 @@
-.PHONY: run build install uninstall clean lint test
+.PHONY: run run-noauth reset build install uninstall clean lint test
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -11,6 +11,14 @@ ICON_DIR = $(HOME)/.local/share/icons
 # Запуск из исходников
 run:
 	$(PYTHON) -m src.main
+
+# Запуск без мастер-пароля
+run-noauth:
+	$(PYTHON) -m src.main --no-auth
+
+# Сброс всех данных (подключения, ключи)
+reset:
+	$(PYTHON) -m src.main --reset
 
 # Сборка бинарника
 build:
