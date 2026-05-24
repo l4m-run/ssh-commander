@@ -152,8 +152,14 @@ class CommandPanel(QWidget):
         title.setStyleSheet("font-weight: bold; font-size: 14px;")
         header.addWidget(title)
 
-        add_btn = QPushButton("+")
-        add_btn.setFixedSize(28, 28)
+        add_btn = QPushButton("Добавить")
+        add_btn.setFixedHeight(28)
+        add_btn.setStyleSheet(
+            "QPushButton { background: #E5E5E7; color: #18181B;"
+            " border: 1px solid #D4D4D8; border-radius: 4px;"
+            " padding: 2px 10px; font-size: 12px; }"
+            "QPushButton:hover { background: #D4D4D8; }"
+        )
         add_btn.setToolTip("Добавить команду")
         add_btn.clicked.connect(self._add_command)
         header.addWidget(add_btn)
