@@ -412,6 +412,10 @@ class TerminalWidget(QAbstractScrollArea):
             if key == Qt.Key.Key_V and modifiers & Qt.KeyboardModifier.ShiftModifier:
                 self._paste()
                 return
+            # Ctrl+Insert - копирование
+            if key == Qt.Key.Key_Insert:
+                self._copy_selection()
+                return
             # Ctrl + буква -> ASCII-код управления
             if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
                 ctrl_char = bytes([key - Qt.Key.Key_A + 1])
@@ -420,6 +424,11 @@ class TerminalWidget(QAbstractScrollArea):
             if key == Qt.Key.Key_BracketLeft:
                 self._session.write(b"\x1b")
                 return
+
+        # Shift+Insert - вставка
+        if modifiers & Qt.KeyboardModifier.ShiftModifier and key == Qt.Key.Key_Insert:
+            self._paste()
+            return
 
         # Специальные клавиши
         if key in KEY_MAP:
