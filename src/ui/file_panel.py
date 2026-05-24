@@ -206,12 +206,16 @@ class FilePanel(QWidget):
         self._tree.dragMoveEvent = self._drag_move
         self._tree.dropEvent = self._drop_event
 
-        # Настройка колонок
+        # Настройка колонок (можно менять ширину перетаскиванием)
         header = self._tree.header()
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(1, 80)
+        header.resizeSection(2, 130)
+        header.resizeSection(3, 100)
 
         layout.addWidget(self._tree)
 
