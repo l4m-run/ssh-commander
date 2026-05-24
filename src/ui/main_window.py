@@ -74,9 +74,11 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1024, 600)
         self.resize(1400, 800)
 
-        self._setup_toolbar()
+        self._ui_ready = False
         self._setup_ui()
+        self._setup_toolbar()
         self._setup_statusbar()
+        self._ui_ready = True
 
         self._refresh_connections()
 
@@ -96,19 +98,6 @@ class MainWindow(QMainWindow):
         files_action.setShortcut("Ctrl+F")
         files_action.triggered.connect(self._open_file_manager)
         toolbar.addAction(files_action)
-
-        toolbar.addSeparator()
-
-        # Контекстные кнопки для режима подключений
-        self._new_conn_action = QAction("+ Новое", self)
-        self._new_conn_action.setShortcut("Ctrl+N")
-        self._new_conn_action.triggered.connect(self._new_connection)
-        toolbar.addAction(self._new_conn_action)
-
-        self._quick_conn_action = QAction("Быстрое подключение", self)
-        self._quick_conn_action.setShortcut("Ctrl+K")
-        self._quick_conn_action.triggered.connect(self._quick_connect)
-        toolbar.addAction(self._quick_conn_action)
 
         # Spacer + смена пароля (справа)
         from PySide6.QtWidgets import QSizePolicy
@@ -134,7 +123,25 @@ class MainWindow(QMainWindow):
         # --- Левая панель: дерево подключений ---
         self._sidebar = QWidget()
         sidebar_layout = QVBoxLayout(self._sidebar)
-        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setContentsMargins(4, 4, 4, 4)
+        sidebar_layout.setSpacing(4)
+
+        # Кнопки над списком подключений
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(4)
+
+        from PySide6.QtWidgets import QPushButton
+        new_btn = QPushButton("+ Новое")
+        new_btn.setShortcut("Ctrl+N")
+        new_btn.clicked.connect(self._new_connection)
+        btn_row.addWidget(new_btn)
+
+        quick_btn = QPushButton("Быстрое")
+        quick_btn.setShortcut("Ctrl+K")
+        quick_btn.clicked.connect(self._quick_connect)
+        btn_row.addWidget(quick_btn)
+
+        sidebar_layout.addLayout(btn_row)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Подключения"])
@@ -421,20 +428,17 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int) -> None:
         """Обработка переключения вкладок."""
+        if not self._ui_ready:
+            return
+
         widget = self._tabs.widget(index)
         if isinstance(widget, TerminalWidget):
             widget.setFocus()
 
-        # Защита от раннего вызова (при инициализации)
-        if not hasattr(self, "_sidebar"):
-            return
-
-        # Скрываем боковые панели и кнопки подключений для файлового менеджера
+        # Скрываем боковые панели для файлового менеджера
         is_file_manager = isinstance(widget, FileManager)
         self._sidebar.setVisible(not is_file_manager)
         self._command_panel.setVisible(not is_file_manager)
-        self._new_conn_action.setVisible(not is_file_manager)
-        self._quick_conn_action.setVisible(not is_file_manager)
 
     def _execute_saved_command(self, command_text: str) -> None:
         """Выполнить сохранённую команду в активном терминале."""

@@ -4,6 +4,11 @@
 Светлая тема в оттенках серого.
 """
 
+from pathlib import Path
+
+# Путь к иконке закрытия вкладки
+_close_icon_path = str(Path(__file__).parent / "icons" / "close.svg").replace("\\", "/")
+
 # Палитра: оттенки серого
 COLORS = {
     "bg_primary": "#F7F7F8",
@@ -166,6 +171,7 @@ def get_app_stylesheet() -> str:
         color: {COLORS["text_primary"]};
     }}
     QTabBar::close-button {{
+        image: url({_close_icon_path});
         subcontrol-position: right;
         padding: 4px;
         margin: 2px;
