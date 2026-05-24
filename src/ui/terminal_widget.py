@@ -168,6 +168,12 @@ class TerminalWidget(QAbstractScrollArea):
         self._repaint_timer.timeout.connect(self._do_repaint)
         self._repaint_timer.start()
 
+        # Debounce для resize (PTY resize отправляется после окончания изменения размера)
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(150)
+        self._resize_timer.timeout.connect(self._apply_resize)
+
         # Скроллбар
         self._setup_scrollbar()
 
@@ -640,24 +646,22 @@ class TerminalWidget(QAbstractScrollArea):
             self._cols = new_cols
             self._rows = new_rows
 
-            # Сбрасываем выделение и скролл при resize
+            # Сбрасываем выделение и скролл
             self._clear_selection()
             self._scroll_offset = 0
 
-            # Сначала сообщаем серверу, чтобы он перестроил вывод
-            if self._session:
-                self._session.resize_pty(self._cols, self._rows)
-
-            # Пересоздаём экран pyte с новым размером (чистый буфер)
-            self._screen = pyte.HistoryScreen(
-                self._cols, self._rows,
-                history=config.terminal_scrollback,
-            )
-            self._screen.set_mode(pyte.modes.LNM)
-            self._stream = pyte.Stream(self._screen)
-
-            self.size_changed.emit(self._cols, self._rows)
+            # Resize pyte сразу (чтобы paintEvent не лез за границы)
+            self._screen.resize(self._rows, self._cols)
             self._dirty = True
+
+            # PTY resize серверу через debounce (когда пользователь перестанет тянуть)
+            self._resize_timer.start()
+
+    def _apply_resize(self) -> None:
+        """Применить resize после debounce."""
+        if self._session:
+            self._session.resize_pty(self._cols, self._rows)
+        self.size_changed.emit(self._cols, self._rows)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Обработка прокрутки мышью."""
