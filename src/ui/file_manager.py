@@ -164,23 +164,27 @@ class FileManager(QWidget):
         dst_conn = dest_panel.get_current_connection()
         dest_path = dest_panel.get_current_path()
 
-        # Пропускаем директории (пока не поддерживаем рекурсивное копирование)
+        # Разворачиваем директории в плоский список файлов
         files = [e for e in entries if not e.is_dir]
-        if not files:
-            QMessageBox.information(
-                self, "Копирование",
-                "Выберите файлы (копирование директорий пока не поддерживается).",
-            )
-            return
+        dirs = [e for e in entries if e.is_dir]
 
         # Определяем направление
         if src_conn is None and dst_conn is None:
             # Локальная -> Локальная: обычное копирование
-            files = self._check_overwrite_local(files, dest_path)
-            if not files:
+            all_files = self._check_overwrite_local(files, dest_path)
+            if all_files is None:
                 return
-            self._local_copy(files, dest_path)
+            self._local_copy(all_files, dest_path)
+            # Копирование директорий локально
+            self._local_copy_dirs(dirs, dest_path)
             dest_panel._refresh()
+            return
+
+        if not files and not dirs:
+            QMessageBox.information(
+                self, "Копирование",
+                "Нет файлов для копирования.",
+            )
             return
 
         if src_conn is None and dst_conn is not None:
@@ -206,7 +210,7 @@ class FileManager(QWidget):
             lambda: self._on_all_completed(dest_panel)
         )
 
-        # Добавляем задачи
+        # Добавляем задачи для обычных файлов
         for entry in files:
             filename = os.path.basename(entry.path)
             if direction == TransferDirection.DOWNLOAD:
@@ -225,12 +229,44 @@ class FileManager(QWidget):
             task_id = self._worker.add_task(task)
             self._active_tasks[task_id] = task
 
+        # Копирование директорий через SFTP (рекурсивно)
+        for d in dirs:
+            dir_name = os.path.basename(d.path)
+            if direction == TransferDirection.DOWNLOAD:
+                dest_dir = os.path.join(dest_path, dir_name)
+            else:
+                dest_dir = f"{dest_path.rstrip('/')}/{dir_name}"
+
+            dir_files = self._flatten_dir(d, source_panel)
+            for rel_path, entry in dir_files:
+                if direction == TransferDirection.DOWNLOAD:
+                    df = os.path.join(dest_dir, rel_path)
+                    os.makedirs(os.path.dirname(df), exist_ok=True)
+                else:
+                    df = f"{dest_dir}/{rel_path}"
+                    # Создание директорий на сервере будет через task
+
+                task = TransferTask(
+                    source_path=entry.path,
+                    dest_path=df,
+                    direction=direction,
+                    source_connection=src_conn,
+                    dest_connection=dst_conn,
+                    total_bytes=entry.size,
+                )
+                task_id = self._worker.add_task(task)
+                self._active_tasks[task_id] = task
+
+        total_tasks = len(self._active_tasks)
+        if total_tasks == 0:
+            return
+
         # Показываем прогресс
         self._progress_bar.setVisible(True)
         self._progress_bar.setValue(0)
-        self._progress_bar.setMaximum(len(files))
+        self._progress_bar.setMaximum(total_tasks)
         self._progress_label.setText(
-            f"Передача {len(files)} файлов..."
+            f"Передача {total_tasks} файлов..."
         )
 
         # Запуск
@@ -248,6 +284,64 @@ class FileManager(QWidget):
                     self, "Ошибка",
                     f"Не удалось скопировать {entry.name}:\n{e}",
                 )
+
+    def _local_copy_dirs(self, dirs: list[FileEntry], dest_path: str) -> None:
+        """Рекурсивно копировать директории локально."""
+        import shutil
+        for entry in dirs:
+            dest = os.path.join(dest_path, os.path.basename(entry.path))
+            try:
+                shutil.copytree(entry.path, dest, dirs_exist_ok=True)
+            except Exception as e:
+                QMessageBox.warning(
+                    self, "Ошибка",
+                    f"Не удалось скопировать {entry.name}:\n{e}",
+                )
+
+    def _flatten_dir(
+        self, dir_entry: FileEntry, panel: FilePanel,
+    ) -> list[tuple[str, FileEntry]]:
+        """Рекурсивно развернуть директорию в плоский список (rel_path, entry)."""
+        result: list[tuple[str, FileEntry]] = []
+        conn = panel.get_current_connection()
+
+        if conn is None:
+            # Локальное сканирование
+            base = dir_entry.path
+            for root, _dirs, fnames in os.walk(base):
+                for fname in fnames:
+                    full = os.path.join(root, fname)
+                    rel = os.path.relpath(full, base)
+                    try:
+                        st = os.stat(full)
+                        result.append((rel, FileEntry(
+                            name=fname, path=full,
+                            is_dir=False, size=st.st_size,
+                        )))
+                    except OSError:
+                        continue
+        else:
+            # SFTP сканирование
+            sftp = panel._sftp_browser
+            self._sftp_walk(sftp, dir_entry.path, "", result)
+
+        return result
+
+    def _sftp_walk(
+        self,
+        sftp: "SFTPBrowser",
+        base_path: str,
+        rel_prefix: str,
+        result: list[tuple[str, FileEntry]],
+    ) -> None:
+        """Рекурсивный обход директории по SFTP."""
+        entries = sftp.list_dir(base_path)
+        for entry in entries:
+            rel = f"{rel_prefix}/{entry.name}" if rel_prefix else entry.name
+            if entry.is_dir:
+                self._sftp_walk(sftp, entry.path, rel, result)
+            else:
+                result.append((rel, entry))
 
     def _on_progress(
         self, task_id: int, transferred: int, total: int

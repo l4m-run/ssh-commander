@@ -147,6 +147,13 @@ class FilePanel(QWidget):
 
         layout.addLayout(path_row)
 
+        # Строка поиска/фильтрации
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Фильтр по имени...")
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.textChanged.connect(self._apply_filter)
+        layout.addWidget(self._filter_edit)
+
         # Таблица файлов
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Имя", "Размер", "Изменён", "Права"])
@@ -249,6 +256,7 @@ class FilePanel(QWidget):
         """Обновить список файлов."""
         self._tree.clear()
         self._entries.clear()
+        self._filter_edit.clear()
 
         if self._mode == "local":
             self._load_local_files()
@@ -308,6 +316,17 @@ class FilePanel(QWidget):
             item.setText(3, entry.permissions)
             item.setData(0, Qt.ItemDataRole.UserRole, entry)
             self._tree.addTopLevelItem(item)
+
+    def _apply_filter(self, text: str) -> None:
+        """Фильтрация файлов по имени."""
+        text = text.strip().lower()
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            entry: FileEntry = item.data(0, Qt.ItemDataRole.UserRole)
+            if not text or text in entry.name.lower():
+                item.setHidden(False)
+            else:
+                item.setHidden(True)
 
     def _on_item_double_click(self, item: QTreeWidgetItem, column: int) -> None:
         """Двойной клик - вход в директорию."""
