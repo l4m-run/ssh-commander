@@ -132,23 +132,22 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         # Основной сплиттер
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # --- Левая панель: дерево подключений ---
-        sidebar_widget = QWidget()
-        sidebar_layout = QVBoxLayout(sidebar_widget)
+        self._sidebar = QWidget()
+        sidebar_layout = QVBoxLayout(self._sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Подключения"])
-        self._tree.setMinimumWidth(200)
-        self._tree.setMaximumWidth(350)
+        self._tree.setMinimumWidth(180)
         self._tree.itemDoubleClicked.connect(self._on_tree_double_click)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._tree.customContextMenuRequested.connect(self._tree_context_menu)
         sidebar_layout.addWidget(self._tree)
 
-        splitter.addWidget(sidebar_widget)
+        self._splitter.addWidget(self._sidebar)
 
         # --- Центральная часть: вкладки с терминалами ---
         self._tabs = QTabWidget()
@@ -169,19 +168,18 @@ class MainWindow(QMainWindow):
         )
         self._tabs.addTab(self._empty_label, "Начало")
 
-        splitter.addWidget(self._tabs)
+        self._splitter.addWidget(self._tabs)
 
         # --- Правая панель: избранные команды ---
         self._command_panel = CommandPanel(self._db)
-        self._command_panel.setMinimumWidth(200)
-        self._command_panel.setMaximumWidth(350)
+        self._command_panel.setMinimumWidth(180)
         self._command_panel.command_execute.connect(self._execute_saved_command)
-        splitter.addWidget(self._command_panel)
+        self._splitter.addWidget(self._command_panel)
 
         # Пропорции сплиттера
-        splitter.setSizes([220, 800, 250])
+        self._splitter.setSizes([220, 800, 250])
 
-        layout.addWidget(splitter)
+        layout.addWidget(self._splitter)
 
     def _setup_statusbar(self) -> None:
         """Создание статусбара."""
@@ -429,6 +427,11 @@ class MainWindow(QMainWindow):
         widget = self._tabs.widget(index)
         if isinstance(widget, TerminalWidget):
             widget.setFocus()
+
+        # Скрываем боковые панели для файлового менеджера
+        is_file_manager = isinstance(widget, FileManager)
+        self._sidebar.setVisible(not is_file_manager)
+        self._command_panel.setVisible(not is_file_manager)
 
     def _execute_saved_command(self, command_text: str) -> None:
         """Выполнить сохранённую команду в активном терминале."""
