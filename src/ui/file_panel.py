@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import os
 import stat
 import time
@@ -148,11 +149,41 @@ class FilePanel(QWidget):
         layout.addLayout(path_row)
 
         # Строка поиска/фильтрации
+        search_row = QHBoxLayout()
+        search_row.setSpacing(2)
+
         self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Фильтр по имени...")
+        self._filter_edit.setPlaceholderText("Фильтр или маска (*.py, *.log)...")
         self._filter_edit.setClearButtonEnabled(True)
         self._filter_edit.textChanged.connect(self._apply_filter)
-        layout.addWidget(self._filter_edit)
+        self._filter_edit.returnPressed.connect(self._run_search)
+        search_row.addWidget(self._filter_edit)
+
+        nav_btn_style = (
+            "QPushButton { background: #E5E5E7; color: #18181B;"
+            " border: 1px solid #D4D4D8; border-radius: 4px;"
+            " padding: 2px 8px; font-weight: bold; font-size: 13px; }"
+            "QPushButton:hover { background: #D4D4D8; }"
+        )
+
+        search_btn = QPushButton("Поиск")
+        search_btn.setFixedHeight(28)
+        search_btn.setToolTip("Рекурсивный поиск по маске в текущей директории")
+        search_btn.setStyleSheet(nav_btn_style)
+        search_btn.clicked.connect(self._run_search)
+        search_row.addWidget(search_btn)
+
+        self._reset_btn = QPushButton("Сброс")
+        self._reset_btn.setFixedHeight(28)
+        self._reset_btn.setToolTip("Вернуться к списку файлов")
+        self._reset_btn.setStyleSheet(nav_btn_style)
+        self._reset_btn.clicked.connect(self._reset_search)
+        self._reset_btn.setVisible(False)
+        search_row.addWidget(self._reset_btn)
+
+        layout.addLayout(search_row)
+
+        self._search_active = False
 
         # Таблица файлов
         self._tree = QTreeWidget()
@@ -256,7 +287,10 @@ class FilePanel(QWidget):
         """Обновить список файлов."""
         self._tree.clear()
         self._entries.clear()
-        self._filter_edit.clear()
+        if not self._search_active:
+            self._filter_edit.clear()
+        self._search_active = False
+        self._reset_btn.setVisible(False)
 
         if self._mode == "local":
             self._load_local_files()
@@ -327,6 +361,101 @@ class FilePanel(QWidget):
                 item.setHidden(False)
             else:
                 item.setHidden(True)
+
+    def _run_search(self) -> None:
+        """Рекурсивный поиск по маске в текущей директории."""
+        pattern = self._filter_edit.text().strip()
+        if not pattern:
+            return
+
+        self._search_active = True
+        self._reset_btn.setVisible(True)
+        self._tree.clear()
+
+        results: list[FileEntry] = []
+        if self._mode == "local":
+            self._search_local(self._local_path, pattern, results)
+        else:
+            self._search_remote(
+                self._sftp_browser.current_path, pattern, results,
+            )
+
+        # Показываем результаты с относительным путём
+        base = (
+            self._local_path if self._mode == "local"
+            else self._sftp_browser.current_path
+        )
+        for entry in results:
+            item = QTreeWidgetItem()
+            # Показываем относительный путь от базовой директории
+            if self._mode == "local":
+                rel = os.path.relpath(entry.path, base)
+            else:
+                rel = entry.path[len(base):].lstrip("/")
+            icon = "📁" if entry.is_dir else "📄"
+            item.setText(0, f"{icon} {rel}")
+            item.setText(1, _format_size(entry.size) if not entry.is_dir else "")
+            item.setText(2, _format_time(entry.modified))
+            item.setText(3, entry.permissions)
+            item.setData(0, Qt.ItemDataRole.UserRole, entry)
+            self._tree.addTopLevelItem(item)
+
+        self._status_label.setText(
+            f"Найдено: {len(results)} (маска: {pattern})"
+        )
+
+    def _search_local(
+        self, base_path: str, pattern: str, results: list[FileEntry],
+        max_results: int = 1000,
+    ) -> None:
+        """Рекурсивный поиск по локальной ФС."""
+        for root, dirs, files in os.walk(base_path):
+            if len(results) >= max_results:
+                break
+            for name in dirs + files:
+                if fnmatch.fnmatch(name, pattern) or pattern.lower() in name.lower():
+                    full = os.path.join(root, name)
+                    try:
+                        st = os.stat(full)
+                        results.append(FileEntry(
+                            name=name,
+                            path=full,
+                            is_dir=os.path.isdir(full),
+                            size=st.st_size,
+                            modified=st.st_mtime,
+                            permissions=stat.filemode(st.st_mode),
+                        ))
+                    except OSError:
+                        continue
+                    if len(results) >= max_results:
+                        break
+
+    def _search_remote(
+        self, base_path: str, pattern: str, results: list[FileEntry],
+        max_results: int = 500,
+    ) -> None:
+        """Рекурсивный поиск по SFTP."""
+        if not self._sftp_browser.is_connected:
+            return
+        try:
+            entries = self._sftp_browser.list_dir(base_path)
+        except Exception:
+            return
+
+        for entry in entries:
+            if len(results) >= max_results:
+                break
+            if fnmatch.fnmatch(entry.name, pattern) or pattern.lower() in entry.name.lower():
+                results.append(entry)
+            if entry.is_dir:
+                self._search_remote(entry.path, pattern, results, max_results)
+
+    def _reset_search(self) -> None:
+        """Сбросить результаты поиска, вернуть обычный вид."""
+        self._search_active = False
+        self._reset_btn.setVisible(False)
+        self._filter_edit.clear()
+        self._refresh()
 
     def _on_item_double_click(self, item: QTreeWidgetItem, column: int) -> None:
         """Двойной клик - вход в директорию."""
