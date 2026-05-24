@@ -116,6 +116,21 @@ class TerminalWidget(QAbstractScrollArea):
         self._char_height = metrics.height()
         self._char_ascent = metrics.ascent()
 
+        # Кеш шрифтов для bold/italic (не создаём на каждый символ)
+        self._font_bold = QFont(self._font)
+        self._font_bold.setBold(True)
+        self._font_italic = QFont(self._font)
+        self._font_italic.setItalic(True)
+        self._font_bold_italic = QFont(self._font)
+        self._font_bold_italic.setBold(True)
+        self._font_bold_italic.setItalic(True)
+
+        # Кеш цветов
+        self._color_cache: dict[str, QColor] = {}
+        self._default_fg = QColor(DEFAULT_FG)
+        self._default_bg = QColor(DEFAULT_BG)
+        self._cursor_color = QColor("#F5E0DC")
+
         # Размер терминала в символах
         self._cols = 80
         self._rows = 24
@@ -183,33 +198,10 @@ class TerminalWidget(QAbstractScrollArea):
         """
         try:
             text = data.decode("utf-8", errors="replace")
-            # Сохраняем строки в scrollback перед обновлением экрана
-            old_lines = self._get_screen_lines()
             self._stream.feed(text)
-            # Проверяем, изменились ли строки (для scrollback)
-            self._update_scrollback(old_lines)
             self._dirty = True
         except Exception as e:
             logger.error("Ошибка обработки данных: %s", e)
-
-    def _get_screen_lines(self) -> list[dict]:
-        """Получить текущие строки экрана для scrollback."""
-        lines = []
-        for y in range(self._rows):
-            line = {}
-            for x in range(self._cols):
-                char = self._screen.buffer[y][x]
-                if char.data != " " or char.fg != "default" or char.bg != "default":
-                    line[x] = char
-            lines.append(line)
-        return lines
-
-    def _update_scrollback(self, old_lines: list[dict]) -> None:
-        """Обновить буфер прокрутки при скролле экрана."""
-        # pyte.HistoryScreen слишком сложен, используем упрощённый подход:
-        # Если курсор находится в последней строке и экран прокрутился,
-        # сохраняем верхнюю строку в scrollback
-        pass  # Упрощённая версия для MVP
 
     def _do_repaint(self) -> None:
         """Перерисовка по таймеру (если есть изменения)."""
@@ -233,7 +225,7 @@ class TerminalWidget(QAbstractScrollArea):
         self.viewport().update()
 
     def _resolve_color(self, color: str, is_bg: bool = False) -> QColor:
-        """Преобразовать цвет pyte в QColor.
+        """Преобразовать цвет pyte в QColor с кешированием.
 
         Args:
             color: Цвет из pyte (имя, "default", или номер 256-color).
@@ -243,21 +235,33 @@ class TerminalWidget(QAbstractScrollArea):
             QColor для рисования.
         """
         if color == "default":
-            return QColor(DEFAULT_BG if is_bg else DEFAULT_FG)
+            return self._default_bg if is_bg else self._default_fg
+
+        # Кеш
+        cache_key = f"{color}_{is_bg}"
+        cached = self._color_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        result: QColor | None = None
 
         # Именованный цвет ANSI
         if color in ANSI_COLORS:
-            return QColor(ANSI_COLORS[color])
+            result = QColor(ANSI_COLORS[color])
+        else:
+            # 256-color (число)
+            try:
+                idx = int(color)
+                if 0 <= idx <= 255:
+                    result = self._color_from_256(idx)
+            except (ValueError, TypeError):
+                pass
 
-        # 256-color (число)
-        try:
-            idx = int(color)
-            if 0 <= idx <= 255:
-                return self._color_from_256(idx)
-        except (ValueError, TypeError):
-            pass
+        if result is None:
+            result = self._default_bg if is_bg else self._default_fg
 
-        return QColor(DEFAULT_BG if is_bg else DEFAULT_FG)
+        self._color_cache[cache_key] = result
+        return result
 
     @staticmethod
     def _color_from_256(idx: int) -> QColor:
@@ -283,73 +287,90 @@ class TerminalWidget(QAbstractScrollArea):
         gray = 8 + (idx - 232) * 10
         return QColor(gray, gray, gray)
 
+    def _get_font_for_char(self, bold: bool, italics: bool) -> QFont:
+        """Получить кешированный шрифт для символа."""
+        if bold and italics:
+            return self._font_bold_italic
+        if bold:
+            return self._font_bold
+        if italics:
+            return self._font_italic
+        return self._font
+
     def paintEvent(self, event: QPaintEvent) -> None:
         """Отрисовка содержимого терминала."""
         painter = QPainter(self.viewport())
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         painter.setFont(self._font)
 
         # Фон терминала
-        painter.fillRect(self.viewport().rect(), QColor(DEFAULT_BG))
+        painter.fillRect(self.viewport().rect(), self._default_bg)
+
+        cw = self._char_width
+        ch = self._char_height
+        ca = self._char_ascent
+        current_font = self._font
 
         # Отрисовка каждого символа
         for y in range(self._rows):
+            py = y * ch
+            row = self._screen.buffer[y]
             for x in range(self._cols):
-                char = self._screen.buffer[y][x]
-                px = x * self._char_width
-                py = y * self._char_height
-
-                # Цвета
-                fg_color = self._resolve_color(char.fg)
-                bg_color = self._resolve_color(char.bg, is_bg=True)
-
-                # Инверсия при reverse
-                if char.reverse:
-                    fg_color, bg_color = bg_color, fg_color
+                char = row[x]
+                px = x * cw
 
                 # Фон символа (только если не дефолтный)
-                if char.bg != "default" or char.reverse:
+                has_bg = char.bg != "default" or char.reverse
+                if has_bg:
+                    fg_color = self._resolve_color(char.fg)
+                    bg_color = self._resolve_color(char.bg, is_bg=True)
+                    if char.reverse:
+                        fg_color, bg_color = bg_color, fg_color
                     painter.fillRect(
                         int(px), int(py),
-                        int(self._char_width) + 1, int(self._char_height),
+                        int(cw) + 1, int(ch),
                         bg_color,
                     )
 
                 # Символ
                 if char.data and char.data != " ":
-                    # Стиль шрифта
-                    font = QFont(self._font)
-                    if char.bold:
-                        font.setBold(True)
-                    if char.italics:
-                        font.setItalic(True)
-                    painter.setFont(font)
+                    # Выбираем кешированный шрифт
+                    needed_font = self._get_font_for_char(char.bold, char.italics)
+                    if needed_font is not current_font:
+                        painter.setFont(needed_font)
+                        current_font = needed_font
+
+                    if not has_bg:
+                        fg_color = self._resolve_color(char.fg)
+                        if char.reverse:
+                            fg_color = self._resolve_color(char.bg, is_bg=True)
 
                     painter.setPen(fg_color)
-                    painter.drawText(
-                        int(px), int(py + self._char_ascent),
-                        char.data,
-                    )
-
-                    if font != self._font:
-                        painter.setFont(self._font)
+                    painter.drawText(int(px), int(py + ca), char.data)
 
                 # Подчёркивание
                 if char.underscore:
+                    if not has_bg and not (char.data and char.data != " "):
+                        fg_color = self._resolve_color(char.fg)
                     painter.setPen(fg_color)
-                    underline_y = int(py + self._char_height - 1)
+                    underline_y = int(py + ch - 1)
                     painter.drawLine(
                         int(px), underline_y,
-                        int(px + self._char_width), underline_y,
+                        int(px + cw), underline_y,
                     )
+
+        # Восстановить базовый шрифт
+        if current_font is not self._font:
+            painter.setFont(self._font)
 
         # Курсор
         if self.hasFocus():
-            cx = self._screen.cursor.x * self._char_width
-            cy = self._screen.cursor.y * self._char_height
-            painter.setPen(QColor("#F5E0DC"))
+            cx = self._screen.cursor.x * cw
+            cy = self._screen.cursor.y * ch
+            painter.setPen(self._cursor_color)
             painter.drawRect(
                 int(cx), int(cy),
-                int(self._char_width) - 1, int(self._char_height) - 1,
+                int(cw) - 1, int(ch) - 1,
             )
 
         painter.end()

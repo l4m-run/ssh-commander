@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import select
 import socket
 from typing import TYPE_CHECKING
 
@@ -118,27 +119,33 @@ class SSHSession(QThread):
             width=80,
             height=24,
         )
-        self._channel.settimeout(0.1)
+        self._channel.settimeout(0.01)
         self._running = True
         logger.info("Подключено к %s:%d", self._host, self._port)
 
     def _read_loop(self) -> None:
-        """Цикл чтения данных из SSH-канала."""
+        """Цикл чтения данных из SSH-канала.
+
+        Использует select() вместо polling для минимальной латентности.
+        """
         while self._running and self._channel and not self._channel.closed:
             try:
-                if self._channel.recv_ready():
+                # select ждёт данные с минимальным таймаутом
+                readable, _, _ = select.select(
+                    [self._channel], [], [], 0.01
+                )
+                if readable:
                     data = self._channel.recv(65536)
                     if data:
                         self.data_received.emit(data)
                     else:
-                        # Канал закрыт удалённой стороной
                         break
-                elif self._channel.exit_status_ready():
+                if self._channel.exit_status_ready():
                     break
-            except socket.timeout:
+            except (socket.timeout, OSError):
+                if not self._running:
+                    break
                 continue
-            except OSError:
-                break
 
     def write(self, data: bytes) -> None:
         """Отправить данные в SSH-канал.
