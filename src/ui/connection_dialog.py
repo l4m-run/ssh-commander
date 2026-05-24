@@ -6,11 +6,9 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -43,7 +41,7 @@ class ConnectionDialog(QDialog):
         self.setWindowTitle(
             "Редактирование подключения" if self._is_edit else "Новое подключение"
         )
-        self.setMinimumWidth(450)
+        self.setMinimumWidth(500)
         self.setModal(True)
 
         self._setup_ui()
@@ -116,22 +114,19 @@ class ConnectionDialog(QDialog):
         # --- Кнопки ---
         btn_layout = QHBoxLayout()
 
-        self._test_btn = QPushButton("Проверить подключение")
-        self._test_btn.setStyleSheet(
-            "background-color: #27AE60; font-weight: bold;"
-        )
+        self._test_btn = QPushButton("Проверить")
         self._test_btn.clicked.connect(self._test_connection)
         btn_layout.addWidget(self._test_btn)
 
         btn_layout.addStretch()
 
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save
-            | QDialogButtonBox.StandardButton.Cancel
-        )
-        button_box.accepted.connect(self._on_save)
-        button_box.rejected.connect(self.reject)
-        btn_layout.addWidget(button_box)
+        save_btn = QPushButton("Сохранить")
+        save_btn.clicked.connect(self._on_save)
+        btn_layout.addWidget(save_btn)
+
+        cancel_btn = QPushButton("Отмена")
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
 
         layout.addLayout(btn_layout)
 
@@ -213,7 +208,7 @@ class ConnectionDialog(QDialog):
                 self, "Ошибка", f"Не удалось подключиться:\n{e}"
             )
         finally:
-            self._test_btn.setText("Проверить подключение")
+            self._test_btn.setText("Проверить")
             self._test_btn.setEnabled(True)
 
     def _on_save(self) -> None:
