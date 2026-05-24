@@ -221,6 +221,36 @@ def get_app_stylesheet() -> str:
     QLineEdit:focus, QSpinBox:focus {{
         border-color: {COLORS["border_focus"]};
     }}
+    QSpinBox::up-button, QSpinBox::down-button {{
+        background-color: {COLORS["bg_button"]};
+        border: none;
+        width: 20px;
+    }}
+    QSpinBox::up-button {{
+        border-top-right-radius: 6px;
+        subcontrol-position: top right;
+    }}
+    QSpinBox::down-button {{
+        border-bottom-right-radius: 6px;
+        subcontrol-position: bottom right;
+    }}
+    QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
+        background-color: {COLORS["bg_button_hover"]};
+    }}
+    QSpinBox::up-arrow {{
+        image: none;
+        width: 0; height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-bottom: 6px solid {COLORS["text_on_button"]};
+    }}
+    QSpinBox::down-arrow {{
+        image: none;
+        width: 0; height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 6px solid {COLORS["text_on_button"]};
+    }}
 
     /* === Диалоги === */
     QDialog {{
