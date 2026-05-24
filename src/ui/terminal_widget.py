@@ -136,14 +136,15 @@ class TerminalWidget(QAbstractScrollArea):
         self._cols = 80
         self._rows = 24
 
-        # pyte - эмулятор терминала
-        self._screen = pyte.Screen(self._cols, self._rows)
+        # pyte - эмулятор терминала с поддержкой истории
+        self._screen = pyte.HistoryScreen(
+            self._cols, self._rows,
+            history=config.terminal_scrollback,
+        )
         self._screen.set_mode(pyte.modes.LNM)  # Line feed / New line mode
         self._stream = pyte.Stream(self._screen)
 
         # Буфер прокрутки (история)
-        self._scrollback: list[dict] = []
-        self._scrollback_max = config.terminal_scrollback
         self._scroll_offset = 0
 
         # SSH-сессия
@@ -220,7 +221,8 @@ class TerminalWidget(QAbstractScrollArea):
     def _update_scrollbar(self) -> None:
         """Обновить состояние скроллбара."""
         scrollbar = self.verticalScrollBar()
-        total = len(self._scrollback) + self._rows
+        history_len = len(self._screen.history.top)
+        total = history_len + self._rows
         scrollbar.setRange(0, max(0, total - self._rows))
         if self._scroll_offset == 0:
             scrollbar.setValue(scrollbar.maximum())
@@ -622,22 +624,23 @@ class TerminalWidget(QAbstractScrollArea):
             # Сбрасываем выделение при resize
             self._clear_selection()
 
-            # Пересоздаём экран pyte с новым размером
-            self._screen.resize(self._rows, self._cols)
-
-            # Сообщаем SSH-серверу новый размер
+            # Сначала сообщаем серверу, чтобы он перестроил вывод
             if self._session:
                 self._session.resize_pty(self._cols, self._rows)
+
+            # Потом пересоздаём экран pyte с новым размером
+            self._screen.resize(self._rows, self._cols)
 
             self.size_changed.emit(self._cols, self._rows)
             self._dirty = True
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Обработка прокрутки мышью."""
+        history_len = len(self._screen.history.top)
         delta = event.angleDelta().y()
         if delta > 0:
             self._scroll_offset = min(
-                self._scroll_offset + 3, len(self._scrollback)
+                self._scroll_offset + 3, history_len
             )
         else:
             self._scroll_offset = max(self._scroll_offset - 3, 0)
