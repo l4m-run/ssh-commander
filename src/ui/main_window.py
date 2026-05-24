@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QIcon
@@ -73,6 +74,11 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SSH Commander")
         self.setMinimumSize(1024, 600)
         self.resize(1400, 800)
+
+        # Иконка приложения
+        icon_path = Path(__file__).parent.parent.parent / "resources" / "icons" / "app.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         self._ui_ready = False
         self._setup_ui()
@@ -142,6 +148,20 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(quick_btn)
 
         sidebar_layout.addLayout(btn_row)
+
+        # Вторая строка: импорт/экспорт
+        io_row = QHBoxLayout()
+        io_row.setSpacing(4)
+
+        export_btn = QPushButton("Экспорт")
+        export_btn.clicked.connect(self._export_connections)
+        io_row.addWidget(export_btn)
+
+        import_btn = QPushButton("Импорт")
+        import_btn.clicked.connect(self._import_connections)
+        io_row.addWidget(import_btn)
+
+        sidebar_layout.addLayout(io_row)
 
         self._tree = QTreeWidget()
         self._tree.setHeaderLabels(["Подключения"])
@@ -515,6 +535,104 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self._db.delete_connection(conn_id)
             self._refresh_connections()
+
+    def _export_connections(self) -> None:
+        """Экспорт подключений в JSON файл."""
+        from PySide6.QtWidgets import QFileDialog
+        import json
+
+        connections = self._db.get_all_connections()
+        if not connections:
+            QMessageBox.information(self, "Экспорт", "Нет подключений для экспорта.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Экспорт подключений",
+            "ssh_connections.json",
+            "JSON (*.json)",
+        )
+        if not path:
+            return
+
+        # Экспортируем без паролей (безопасность)
+        data = []
+        for conn in connections:
+            item = conn.to_dict()
+            item.pop("id", None)
+            item.pop("encrypted_password", None)
+            item.pop("created_at", None)
+            item.pop("last_used", None)
+            data.append(item)
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            QMessageBox.information(
+                self, "Экспорт",
+                f"Экспортировано {len(data)} подключений.\n"
+                "Пароли не экспортируются.",
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка", f"Ошибка экспорта:\n{e}")
+
+    def _import_connections(self) -> None:
+        """Импорт подключений из JSON файла."""
+        from PySide6.QtWidgets import QFileDialog
+        import json
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Импорт подключений",
+            "", "JSON (*.json)",
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка", f"Ошибка чтения файла:\n{e}")
+            return
+
+        if not isinstance(data, list):
+            QMessageBox.warning(self, "Ошибка", "Неверный формат файла.")
+            return
+
+        # Существующие подключения для проверки дублей
+        existing = self._db.get_all_connections()
+        existing_keys = {
+            (c.host, c.port, c.username) for c in existing
+        }
+
+        imported = 0
+        skipped = 0
+        for item in data:
+            if not isinstance(item, dict) or "host" not in item:
+                continue
+            host = item.get("host", "")
+            port = item.get("port", 22)
+            username = item.get("username", "")
+
+            if (host, port, username) in existing_keys:
+                skipped += 1
+                continue
+
+            conn = Connection(
+                name=item.get("name", ""),
+                host=host,
+                port=port,
+                username=username,
+                ssh_key_path=item.get("ssh_key_path", ""),
+                group_name=item.get("group_name", ""),
+            )
+            self._db.save_connection(conn)
+            imported += 1
+
+        self._refresh_connections()
+        msg = f"Импортировано: {imported}"
+        if skipped:
+            msg += f"\nПропущено дублей: {skipped}"
+        QMessageBox.information(self, "Импорт", msg)
 
     def _open_file_manager(self) -> None:
         """Открыть файловый менеджер как новую вкладку."""

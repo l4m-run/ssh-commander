@@ -7,6 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('resources/', 'resources/'),
+        ('src/ui/icons/', 'src/ui/icons/'),
     ],
     hiddenimports=[
         'paramiko',
