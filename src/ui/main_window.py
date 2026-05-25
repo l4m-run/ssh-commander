@@ -537,14 +537,61 @@ class MainWindow(QMainWindow):
             self._refresh_connections()
 
     def _export_connections(self) -> None:
-        """Экспорт подключений в JSON файл."""
-        from PySide6.QtWidgets import QFileDialog
+        """Экспорт подключений в JSON файл.
+
+        Показывает диалог с опцией включения паролей.
+        При экспорте с паролями - расшифровывает и сохраняет
+        в открытом виде (поле "password"), чтобы файл можно было
+        импортировать на другой машине.
+        """
+        from PySide6.QtWidgets import QCheckBox, QFileDialog
         import json
 
         connections = self._db.get_all_connections()
         if not connections:
             QMessageBox.information(self, "Экспорт", "Нет подключений для экспорта.")
             return
+
+        # Диалог выбора: с паролями или без
+        export_dialog = QDialog(self)
+        export_dialog.setWindowTitle("Экспорт подключений")
+        export_dialog.setMinimumWidth(350)
+        export_dialog.setModal(True)
+
+        dlg_layout = QVBoxLayout(export_dialog)
+        dlg_layout.setSpacing(10)
+
+        info_label = QLabel(
+            f"Будет экспортировано: {len(connections)} подключений"
+        )
+        dlg_layout.addWidget(info_label)
+
+        include_passwords = QCheckBox("Включить пароли (открытым текстом)")
+        dlg_layout.addWidget(include_passwords)
+
+        password_warning = QLabel(
+            "⚠ Пароли будут сохранены в файл без шифрования.\n"
+            "Храните экспортированный файл в безопасном месте."
+        )
+        password_warning.setStyleSheet("color: #B45309; font-size: 12px;")
+        password_warning.setWordWrap(True)
+        password_warning.setVisible(False)
+        dlg_layout.addWidget(password_warning)
+
+        include_passwords.toggled.connect(password_warning.setVisible)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok
+            | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(export_dialog.accept)
+        buttons.rejected.connect(export_dialog.reject)
+        dlg_layout.addWidget(buttons)
+
+        if export_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        with_passwords = include_passwords.isChecked()
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Экспорт подключений",
@@ -554,29 +601,50 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        # Экспортируем без паролей (безопасность)
+        # Формируем данные для экспорта
         data = []
+        password_errors = 0
         for conn in connections:
             item = conn.to_dict()
             item.pop("id", None)
             item.pop("encrypted_password", None)
             item.pop("created_at", None)
             item.pop("last_used", None)
+
+            # Расшифровка пароля при необходимости
+            if with_passwords and conn.encrypted_password:
+                try:
+                    item["password"] = crypto.decrypt(conn.encrypted_password)
+                except Exception as e:
+                    logger.warning(
+                        "Не удалось расшифровать пароль для %s: %s",
+                        conn.display_name, e,
+                    )
+                    password_errors += 1
+
             data.append(item)
 
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            QMessageBox.information(
-                self, "Экспорт",
-                f"Экспортировано {len(data)} подключений.\n"
-                "Пароли не экспортируются.",
-            )
+
+            msg = f"Экспортировано {len(data)} подключений."
+            if with_passwords:
+                msg += "\nПароли включены (открытый текст)."
+                if password_errors:
+                    msg += f"\nНе удалось расшифровать: {password_errors}."
+            else:
+                msg += "\nБез паролей."
+            QMessageBox.information(self, "Экспорт", msg)
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Ошибка экспорта:\n{e}")
 
     def _import_connections(self) -> None:
-        """Импорт подключений из JSON файла."""
+        """Импорт подключений из JSON файла.
+
+        Поддерживает файлы с паролями (поле "password")
+        и без них. Пароли шифруются текущим мастер-ключом.
+        """
         from PySide6.QtWidgets import QFileDialog
         import json
 
@@ -606,6 +674,7 @@ class MainWindow(QMainWindow):
 
         imported = 0
         skipped = 0
+        with_passwords = 0
         for item in data:
             if not isinstance(item, dict) or "host" not in item:
                 continue
@@ -617,11 +686,25 @@ class MainWindow(QMainWindow):
                 skipped += 1
                 continue
 
+            # Шифруем пароль, если он есть в файле
+            encrypted_password = ""
+            plain_password = item.get("password", "")
+            if plain_password:
+                try:
+                    encrypted_password = crypto.encrypt(plain_password)
+                    with_passwords += 1
+                except Exception as e:
+                    logger.warning(
+                        "Не удалось зашифровать пароль для %s@%s: %s",
+                        username, host, e,
+                    )
+
             conn = Connection(
                 name=item.get("name", ""),
                 host=host,
                 port=port,
                 username=username,
+                encrypted_password=encrypted_password,
                 ssh_key_path=item.get("ssh_key_path", ""),
                 group_name=item.get("group_name", ""),
             )
@@ -630,6 +713,8 @@ class MainWindow(QMainWindow):
 
         self._refresh_connections()
         msg = f"Импортировано: {imported}"
+        if with_passwords:
+            msg += f"\nС паролями: {with_passwords}"
         if skipped:
             msg += f"\nПропущено дублей: {skipped}"
         QMessageBox.information(self, "Импорт", msg)
