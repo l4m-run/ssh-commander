@@ -125,9 +125,21 @@ class MainWindow(QMainWindow):
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
 
-        export_all_action = QAction("Экспорт всего", self)
-        export_all_action.triggered.connect(self._export_all)
-        toolbar.addAction(export_all_action)
+        toolbar.addSeparator()
+
+        data_label = QAction("Данные:", self)
+        data_label.setEnabled(False)
+        toolbar.addAction(data_label)
+
+        export_action = QAction("Экспорт", self)
+        export_action.triggered.connect(self._export_all)
+        toolbar.addAction(export_action)
+
+        import_action = QAction("Импорт", self)
+        import_action.triggered.connect(self._import_all)
+        toolbar.addAction(import_action)
+
+        toolbar.addSeparator()
 
         pwd_action = QAction("Сменить пароль", self)
         pwd_action.triggered.connect(self._change_master_password)
@@ -988,6 +1000,219 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Экспорт", msg)
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Ошибка экспорта:\n{e}")
+
+    def _import_all(self) -> None:
+        """Глобальный импорт всего содержимого из JSON."""
+        from PySide6.QtWidgets import QFileDialog
+        import json
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Импорт данных", "", "JSON (*.json)",
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка", f"Ошибка чтения файла:\n{e}")
+            return
+
+        # Обратная совместимость
+        if isinstance(raw_data, list):
+            ssh_list = raw_data
+            db_list: list = []
+            secrets_list: list = []
+        elif isinstance(raw_data, dict):
+            ssh_list = raw_data.get("connections", [])
+            db_list = raw_data.get("db_connections", [])
+            secrets_list = raw_data.get("secrets", [])
+        else:
+            QMessageBox.warning(self, "Ошибка", "Неверный формат файла.")
+            return
+
+        # Проверяем дубли SSH
+        existing = self._db.get_all_connections()
+        existing_map: dict[tuple, Connection] = {
+            (c.host, c.port, c.username): c for c in existing
+        }
+
+        new_items = []
+        duplicate_items = []
+        for item in ssh_list:
+            if not isinstance(item, dict) or "host" not in item:
+                continue
+            key = (item.get("host", ""), item.get("port", 22), item.get("username", ""))
+            if key in existing_map:
+                duplicate_items.append((item, existing_map[key]))
+            else:
+                new_items.append(item)
+
+        # Если есть дубли - спрашиваем
+        replace_duplicates = False
+        if duplicate_items:
+            dup_text = "\n".join(
+                f"  - {item.get('name', '')} ({item.get('username', '')}@"
+                f"{item.get('host', '')}:{item.get('port', 22)})"
+                for item, _ in duplicate_items
+            )
+            dlg = QMessageBox(self)
+            dlg.setWindowTitle("Обнаружены дубли")
+            dlg.setIcon(QMessageBox.Icon.Question)
+            dlg.setText(
+                f"Найдено {len(duplicate_items)} SSH-подключений, "
+                f"которые уже существуют:\n\n{dup_text}\n\n"
+                f"Что сделать с дублями?"
+            )
+            replace_btn = dlg.addButton(
+                "Заменить", QMessageBox.ButtonRole.YesRole
+            )
+            keep_btn = dlg.addButton(
+                "Оставить существующие", QMessageBox.ButtonRole.NoRole
+            )
+            cancel_btn = dlg.addButton(
+                "Отменить импорт", QMessageBox.ButtonRole.RejectRole
+            )
+            dlg.exec()
+
+            if dlg.clickedButton() == cancel_btn:
+                return
+            replace_duplicates = dlg.clickedButton() == replace_btn
+
+        # Импорт SSH
+        imported = 0
+        with_passwords = 0
+
+        for item in new_items:
+            encrypted_password = ""
+            plain_password = item.get("password", "")
+            if plain_password:
+                try:
+                    encrypted_password = crypto.encrypt(plain_password)
+                    with_passwords += 1
+                except Exception:
+                    pass
+
+            conn = Connection(
+                name=item.get("name", ""),
+                host=item.get("host", ""),
+                port=item.get("port", 22),
+                username=item.get("username", ""),
+                encrypted_password=encrypted_password,
+                ssh_key_path=item.get("ssh_key_path", ""),
+                group_name=item.get("group_name", ""),
+            )
+            self._db.save_connection(conn)
+            imported += 1
+
+        # Обновляем дубли если выбрано "Заменить"
+        replaced = 0
+        if replace_duplicates:
+            for item, existing_conn in duplicate_items:
+                plain_password = item.get("password", "")
+                encrypted_password = existing_conn.encrypted_password
+                if plain_password:
+                    try:
+                        encrypted_password = crypto.encrypt(plain_password)
+                    except Exception:
+                        pass
+
+                existing_conn.name = item.get("name", existing_conn.name)
+                existing_conn.encrypted_password = encrypted_password
+                existing_conn.ssh_key_path = item.get(
+                    "ssh_key_path", existing_conn.ssh_key_path
+                )
+                existing_conn.group_name = item.get(
+                    "group_name", existing_conn.group_name
+                )
+                self._db.save_connection(existing_conn)
+                replaced += 1
+
+        # Импорт БД
+        from src.models.db_connection import DbConnectionConfig
+        db_imported = 0
+        all_conns = self._db.get_all_connections()
+        for dc_item in db_list:
+            if not isinstance(dc_item, dict):
+                continue
+
+            ssh_conn_id = None
+            ref = dc_item.get("ssh_connection_ref")
+            if ref and isinstance(ref, dict):
+                for c in all_conns:
+                    if (c.host == ref.get("host")
+                            and c.port == ref.get("port")
+                            and c.username == ref.get("username")):
+                        ssh_conn_id = c.id
+                        break
+
+            encrypted_db_pass = ""
+            plain_db_pass = dc_item.get("db_password", "")
+            if plain_db_pass:
+                try:
+                    encrypted_db_pass = crypto.encrypt(plain_db_pass)
+                except Exception:
+                    pass
+
+            dc = DbConnectionConfig(
+                name=dc_item.get("name", ""),
+                ssh_connection_id=ssh_conn_id,
+                db_type=dc_item.get("db_type", "postgresql"),
+                db_host=dc_item.get("db_host", "localhost"),
+                db_port=dc_item.get("db_port", 5432),
+                db_user=dc_item.get("db_user", ""),
+                encrypted_db_password=encrypted_db_pass,
+                database_name=dc_item.get("database_name", ""),
+            )
+            self._db.save_db_connection(dc)
+            db_imported += 1
+
+        # Импорт секретов
+        from src.models.secret import SecretEntry
+        secrets_imported = 0
+        for s_item in secrets_list:
+            if not isinstance(s_item, dict):
+                continue
+
+            encrypted_pass = ""
+            plain_pass = s_item.get("password", "")
+            if plain_pass:
+                try:
+                    encrypted_pass = crypto.encrypt(plain_pass)
+                except Exception:
+                    pass
+
+            secret = SecretEntry(
+                name=s_item.get("name", ""),
+                username=s_item.get("username", ""),
+                encrypted_password=encrypted_pass,
+                url=s_item.get("url", ""),
+                notes=s_item.get("notes", ""),
+                category=s_item.get("category", ""),
+            )
+            self._db.save_secret(secret)
+            secrets_imported += 1
+
+        self._refresh_connections()
+
+        # Итоги
+        parts = []
+        if imported:
+            parts.append(f"{imported} SSH")
+        if replaced:
+            parts.append(f"{replaced} SSH обновлено")
+        if len(duplicate_items) - replaced > 0 and not replace_duplicates:
+            parts.append(
+                f"{len(duplicate_items)} SSH пропущено (дубли)"
+            )
+        if db_imported:
+            parts.append(f"{db_imported} БД")
+        if secrets_imported:
+            parts.append(f"{secrets_imported} секретов")
+
+        msg = "Импортировано: " + ", ".join(parts) if parts else "Нечего импортировать"
+        QMessageBox.information(self, "Импорт", msg)
 
     def _change_master_password(self) -> None:
         """Диалог смены мастер-пароля."""
