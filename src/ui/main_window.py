@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
 
     def _new_connection(self) -> None:
         """Создать новое подключение через диалог."""
-        dialog = ConnectionDialog(self)
+        dialog = ConnectionDialog(self, app_db=self._db)
         if dialog.exec() == ConnectionDialog.DialogCode.Accepted:
             conn = dialog.get_connection()
             self._db.save_connection(conn)
@@ -521,7 +521,7 @@ class MainWindow(QMainWindow):
         if not conn:
             return
 
-        dialog = ConnectionDialog(self, connection=conn)
+        dialog = ConnectionDialog(self, connection=conn, app_db=self._db)
         if dialog.exec() == ConnectionDialog.DialogCode.Accepted:
             updated = dialog.get_connection()
             self._db.save_connection(updated)
