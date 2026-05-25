@@ -286,12 +286,14 @@ class TransferWorker(QThread):
         progress: Прогресс передачи (task_id, transferred, total).
         task_completed: Задача завершена (task_id).
         task_error: Ошибка задачи (task_id, error_message).
+        transfer_info: Информация о методе передачи (task_id, message).
         all_completed: Все задачи завершены.
     """
 
     progress = Signal(int, int, int)
     task_completed = Signal(int)
     task_error = Signal(int, str)
+    transfer_info = Signal(int, str)
     all_completed = Signal()
 
     def __init__(self) -> None:
@@ -592,6 +594,7 @@ class TransferWorker(QThread):
         """
         if not task.direct_scp_failed:
             try:
+                self.transfer_info.emit(task.id, "Прямой SCP")
                 if self._try_direct_scp(task):
                     logger.info(
                         "Прямой SCP: %s -> %s", task.source_path, task.dest_path,
@@ -601,6 +604,7 @@ class TransferWorker(QThread):
                 logger.warning("Ошибка прямого SCP: %s", e)
             task.direct_scp_failed = True
 
+        self.transfer_info.emit(task.id, "Транзит")
         logger.info(
             "Потоковый транзит: %s -> %s", task.source_path, task.dest_path,
         )

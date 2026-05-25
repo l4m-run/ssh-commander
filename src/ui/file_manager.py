@@ -208,6 +208,7 @@ class FileManager(QWidget):
         self._worker.progress.connect(self._on_progress)
         self._worker.task_completed.connect(self._on_task_completed)
         self._worker.task_error.connect(self._on_task_error)
+        self._worker.transfer_info.connect(self._on_transfer_info)
         self._worker.all_completed.connect(
             lambda: self._on_all_completed(dest_panel)
         )
@@ -345,6 +346,13 @@ class FileManager(QWidget):
             else:
                 result.append((rel, entry))
 
+    def _on_transfer_info(self, task_id: int, method: str) -> None:
+        """Информация о методе передачи."""
+        self._transfer_method = method
+        task = self._active_tasks.get(task_id)
+        name = os.path.basename(task.source_path) if task else ""
+        self._progress_label.setText(f"[{method}] {name}")
+
     def _on_progress(
         self, task_id: int, transferred: int, total: int
     ) -> None:
@@ -353,8 +361,10 @@ class FileManager(QWidget):
             pct = int(transferred / total * 100)
             task = self._active_tasks.get(task_id)
             name = os.path.basename(task.source_path) if task else ""
+            method = getattr(self, '_transfer_method', '')
+            prefix = f"[{method}] " if method else ""
             self._progress_label.setText(
-                f"Передача: {name} ({pct}%)"
+                f"{prefix}{name} ({pct}%)"
             )
 
     def _on_task_completed(self, task_id: int) -> None:
@@ -397,6 +407,7 @@ class FileManager(QWidget):
         worker.progress.connect(self._on_progress)
         worker.task_completed.connect(self._on_task_completed)
         worker.task_error.connect(self._on_task_error)
+        worker.transfer_info.connect(self._on_transfer_info)
         worker.all_completed.connect(
             lambda: self._on_all_completed(self._dest_panel)
         )
