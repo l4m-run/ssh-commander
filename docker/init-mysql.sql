@@ -1,6 +1,7 @@
 -- Тестовые данные для MySQL
 -- БД testdb создаётся автоматически через MYSQL_DATABASE
 
+SET NAMES utf8mb4;
 USE testdb;
 
 CREATE TABLE users (

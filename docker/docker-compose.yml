@@ -30,6 +30,7 @@ services:
 
   mysql:
     image: mysql:8.0
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci --init-connect='SET NAMES utf8mb4'
     environment:
       MYSQL_ROOT_PASSWORD: mypass123
       MYSQL_DATABASE: testdb
