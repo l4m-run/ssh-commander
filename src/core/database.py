@@ -12,6 +12,7 @@ from pathlib import Path
 from src.models.command import SavedCommand
 from src.models.connection import Connection
 from src.models.db_connection import DbConnectionConfig
+from src.models.secret import SecretEntry
 
 
 class Database:
@@ -23,7 +24,7 @@ class Database:
     """
 
     # Текущая версия схемы
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -62,6 +63,8 @@ class Database:
             self._migrate_v1()
         if current_version < 2:
             self._migrate_v2()
+        if current_version < 3:
+            self._migrate_v3()
 
         if not row:
             self.conn.execute(
@@ -116,6 +119,22 @@ class Database:
                 database_name TEXT NOT NULL DEFAULT '',
                 FOREIGN KEY (ssh_connection_id)
                     REFERENCES connections(id) ON DELETE SET NULL
+            );
+        """)
+
+    def _migrate_v3(self) -> None:
+        """Миграция v3: таблица секретов."""
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS secrets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT '',
+                username TEXT NOT NULL DEFAULT '',
+                encrypted_password TEXT NOT NULL DEFAULT '',
+                url TEXT NOT NULL DEFAULT '',
+                notes TEXT NOT NULL DEFAULT '',
+                category TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT ''
             );
         """)
 
@@ -328,4 +347,63 @@ class Database:
         self.conn.execute(
             "DELETE FROM db_connections WHERE id = ?", (db_conn_id,)
         )
+        self.conn.commit()
+
+    # --- Секреты ---
+
+    def get_all_secrets(self) -> list[SecretEntry]:
+        """Получить все секреты."""
+        rows = self.conn.execute(
+            "SELECT * FROM secrets ORDER BY category, name"
+        ).fetchall()
+        return [SecretEntry.from_dict(dict(row)) for row in rows]
+
+    def get_secret(self, secret_id: int) -> SecretEntry | None:
+        """Получить секрет по ID."""
+        row = self.conn.execute(
+            "SELECT * FROM secrets WHERE id = ?", (secret_id,)
+        ).fetchone()
+        return SecretEntry.from_dict(dict(row)) if row else None
+
+    def save_secret(self, secret: SecretEntry) -> int:
+        """Сохранить секрет (создать или обновить).
+
+        Returns:
+            ID сохранённого секрета.
+        """
+        from datetime import datetime
+        now = datetime.now().isoformat()
+
+        if secret.id is None:
+            cursor = self.conn.execute(
+                """INSERT INTO secrets
+                   (name, username, encrypted_password, url, notes,
+                    category, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    secret.name, secret.username,
+                    secret.encrypted_password, secret.url,
+                    secret.notes, secret.category, now, now,
+                ),
+            )
+            self.conn.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+
+        self.conn.execute(
+            """UPDATE secrets SET
+               name=?, username=?, encrypted_password=?, url=?,
+               notes=?, category=?, updated_at=?
+               WHERE id=?""",
+            (
+                secret.name, secret.username,
+                secret.encrypted_password, secret.url,
+                secret.notes, secret.category, now, secret.id,
+            ),
+        )
+        self.conn.commit()
+        return secret.id
+
+    def delete_secret(self, secret_id: int) -> None:
+        """Удалить секрет по ID."""
+        self.conn.execute("DELETE FROM secrets WHERE id = ?", (secret_id,))
         self.conn.commit()

@@ -53,6 +53,7 @@ from src.ui.command_panel import CommandPanel
 from src.ui.connection_dialog import ConnectionDialog
 from src.ui.file_manager import FileManager
 from src.ui.db_browser import DatabaseBrowser
+from src.ui.secret_manager import SecretManager
 from src.ui.terminal_widget import TerminalWidget
 
 logger = logging.getLogger(__name__)
@@ -72,6 +73,7 @@ class MainWindow(QMainWindow):
         self._sessions: dict[int, SSHSession] = {}
         self._file_managers: list[FileManager] = []
         self._db_browsers: list[DatabaseBrowser] = []
+        self._secret_managers: list[SecretManager] = []
 
         self.setWindowTitle("SSH Commander")
         self.setMinimumSize(1024, 600)
@@ -112,11 +114,20 @@ class MainWindow(QMainWindow):
         db_action.triggered.connect(self._open_db_browser)
         toolbar.addAction(db_action)
 
-        # Spacer + смена пароля (справа)
+        secrets_action = QAction("Секреты", self)
+        secrets_action.setShortcut("Ctrl+Shift+S")
+        secrets_action.triggered.connect(self._open_secret_manager)
+        toolbar.addAction(secrets_action)
+
+        # Spacer + кнопки справа
         from PySide6.QtWidgets import QSizePolicy
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         toolbar.addWidget(spacer)
+
+        export_all_action = QAction("Экспорт всего", self)
+        export_all_action.triggered.connect(self._export_all)
+        toolbar.addAction(export_all_action)
 
         pwd_action = QAction("Сменить пароль", self)
         pwd_action.triggered.connect(self._change_master_password)
@@ -462,8 +473,10 @@ class MainWindow(QMainWindow):
         if isinstance(widget, TerminalWidget):
             widget.setFocus()
 
-        # Скрываем боковые панели для файлового менеджера и браузера БД
-        hide_panels = isinstance(widget, (FileManager, DatabaseBrowser))
+        # Скрываем боковые панели для файлового менеджера, браузера БД и секретов
+        hide_panels = isinstance(
+            widget, (FileManager, DatabaseBrowser, SecretManager)
+        )
         self._sidebar.setVisible(not hide_panels)
         self._command_panel.setVisible(not hide_panels)
 
@@ -850,17 +863,129 @@ class MainWindow(QMainWindow):
         tab_idx = self._tabs.addTab(db_browser, "Базы данных")
         self._tabs.setCurrentIndex(tab_idx)
 
-    def _show_connections(self) -> None:
-        """Переключиться на режим подключений."""
-        # Ищем первую не-файловую и не-БД вкладку (терминал или placeholder)
+    def _open_secret_manager(self) -> None:
+        """Открыть менеджер секретов как новую вкладку."""
         for i in range(self._tabs.count()):
-            widget = self._tabs.widget(i)
-            if not isinstance(widget, (FileManager, DatabaseBrowser)):
+            if isinstance(self._tabs.widget(i), SecretManager):
                 self._tabs.setCurrentIndex(i)
                 return
-        # Если все вкладки - файлы, создаём placeholder
+
+        sm = SecretManager(self._db)
+        self._secret_managers.append(sm)
+
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(sm, "Секреты")
+        self._tabs.setCurrentIndex(tab_idx)
+
+    def _show_connections(self) -> None:
+        """Переключиться на режим подключений."""
+        for i in range(self._tabs.count()):
+            widget = self._tabs.widget(i)
+            if not isinstance(
+                widget, (FileManager, DatabaseBrowser, SecretManager)
+            ):
+                self._tabs.setCurrentIndex(i)
+                return
         self._tabs.addTab(self._empty_label, "Начало")
         self._tabs.setCurrentWidget(self._empty_label)
+
+    def _export_all(self) -> None:
+        """Глобальный экспорт всего содержимого в открытом виде."""
+        reply = QMessageBox.warning(
+            self, "Экспорт всего",
+            "Все пароли будут сохранены в открытом виде!\n"
+            "Продолжить?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        from datetime import datetime
+        default_name = f"ssh_commander_full_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.json"
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Экспорт всего", default_name, "JSON (*.json)",
+        )
+        if not path:
+            return
+
+        errors = 0
+
+        # SSH-подключения
+        ssh_data = []
+        for conn in self._db.get_all_connections():
+            item = conn.to_dict()
+            item.pop("id", None)
+            item.pop("created_at", None)
+            item.pop("last_used", None)
+            item.pop("encrypted_password", None)
+            if conn.encrypted_password:
+                try:
+                    item["password"] = crypto.decrypt(conn.encrypted_password)
+                except Exception:
+                    errors += 1
+            ssh_data.append(item)
+
+        # Подключения к БД
+        db_data = []
+        for dc in self._db.get_all_db_connections():
+            dc_item = dc.to_dict()
+            dc_item.pop("id", None)
+            if dc.ssh_connection_id:
+                ssh_conn = self._db.get_connection(dc.ssh_connection_id)
+                if ssh_conn:
+                    dc_item["ssh_connection_ref"] = {
+                        "host": ssh_conn.host,
+                        "port": ssh_conn.port,
+                        "username": ssh_conn.username,
+                    }
+            dc_item.pop("ssh_connection_id", None)
+            dc_item.pop("encrypted_db_password", None)
+            if dc.encrypted_db_password:
+                try:
+                    dc_item["db_password"] = crypto.decrypt(
+                        dc.encrypted_db_password
+                    )
+                except Exception:
+                    errors += 1
+            db_data.append(dc_item)
+
+        # Секреты
+        secrets_data = []
+        for s in self._db.get_all_secrets():
+            s_item = s.to_dict()
+            s_item.pop("id", None)
+            s_item.pop("encrypted_password", None)
+            if s.encrypted_password:
+                try:
+                    s_item["password"] = crypto.decrypt(s.encrypted_password)
+                except Exception:
+                    errors += 1
+            secrets_data.append(s_item)
+
+        export = {
+            "connections": ssh_data,
+            "db_connections": db_data,
+            "secrets": secrets_data,
+        }
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(export, f, ensure_ascii=False, indent=2)
+
+            msg = (
+                f"Экспортировано: {len(ssh_data)} SSH, "
+                f"{len(db_data)} БД, {len(secrets_data)} секретов.\n"
+                f"Все пароли в открытом виде!"
+            )
+            if errors:
+                msg += f"\nНе удалось расшифровать: {errors}"
+            QMessageBox.information(self, "Экспорт", msg)
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка", f"Ошибка экспорта:\n{e}")
 
     def _change_master_password(self) -> None:
         """Диалог смены мастер-пароля."""
