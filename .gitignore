@@ -27,6 +27,6 @@ build/
 .docs/
 
 # Файлы экспорта
-ssh_commander_full_*.json
+opsdesk_full_*.json
 ssh_connections.json
 export.*

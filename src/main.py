@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Точка входа приложения SSH Commander.
+"""Точка входа приложения OpsDesk.
 
 Запуск: python -m src.main
 """
@@ -45,7 +45,7 @@ class MasterPasswordDialog(QDialog):
     def __init__(self, is_first_run: bool) -> None:
         super().__init__()
         self._is_first_run = is_first_run
-        self.setWindowTitle("SSH Commander")
+        self.setWindowTitle("OpsDesk")
         self.setMinimumWidth(380)
         self.setModal(True)
         self.setWindowFlags(
@@ -144,7 +144,7 @@ class MasterPasswordDialog(QDialog):
 
 def _parse_args() -> argparse.Namespace:
     """Парсинг аргументов командной строки."""
-    parser = argparse.ArgumentParser(description="SSH Commander")
+    parser = argparse.ArgumentParser(description="OpsDesk")
     parser.add_argument(
         "--no-auth",
         action="store_true",
@@ -167,8 +167,8 @@ def main() -> int:
     args = _parse_args()
 
     app = QApplication(sys.argv)
-    app.setApplicationName("SSH Commander")
-    app.setOrganizationName("ssh-commander")
+    app.setApplicationName("OpsDesk")
+    app.setOrganizationName("opsdesk")
 
     # Применяем стили
     app.setStyleSheet(get_app_stylesheet())

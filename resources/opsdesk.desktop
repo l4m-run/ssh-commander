@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=OpsDesk
+GenericName=Server Administration Tool
+Comment=Управление серверами: SSH, файлы, Docker, сервисы, туннели
+Exec=opsdesk
+Icon=opsdesk
+Terminal=false
+Categories=Network;RemoteAccess;System;
+Keywords=ssh;terminal;remote;server;docker;systemd;
+StartupWMClass=opsdesk

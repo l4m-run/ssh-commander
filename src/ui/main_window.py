@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Главное окно приложения SSH Commander.
+"""Главное окно приложения OpsDesk.
 
 Layout:
 ┌──────────────────────────────────────────────────┐
@@ -82,7 +82,7 @@ class MainWindow(QMainWindow):
         self._db_browsers: list[DatabaseBrowser] = []
         self._secret_managers: list[SecretManager] = []
 
-        self.setWindowTitle("SSH Commander")
+        self.setWindowTitle("OpsDesk")
         self.setMinimumSize(1024, 600)
         self.resize(1400, 800)
 
@@ -1091,7 +1091,7 @@ class MainWindow(QMainWindow):
         from datetime import datetime
         from PySide6.QtWidgets import QFileDialog
         import json
-        default_name = f"ssh_commander_full_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.json"
+        default_name = f"opsdesk_full_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.json"
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Экспорт всего", default_name, "JSON (*.json)",

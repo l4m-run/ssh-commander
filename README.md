@@ -1,4 +1,4 @@
-# SSH Commander
+# OpsDesk
 
 Десктопное приложение для управления SSH-подключениями с поддержкой вкладок, файлового менеджера и шифрованного хранилища паролей.
 
@@ -135,7 +135,7 @@ make run
 # Установка dev-зависимостей
 pip install -r requirements.dev.txt
 
-# Сборка (результат в dist/ssh-commander, ~74MB)
+# Сборка (результат в dist/opsdesk, ~74MB)
 make build
 
 # Установка в систему (бинарник + .desktop файл)
@@ -204,7 +204,7 @@ cmd/
 │       └── icons/                # SVG-иконки
 ├── resources/
 │   ├── icons/app.png             # Иконка приложения
-│   └── ssh-commander.desktop     # Desktop-файл
+│   └── opsdesk.desktop     # Desktop-файл
 ├── cmd.spec                      # Конфигурация PyInstaller
 ├── Makefile                      # make run/build/install/clean
 ├── requirements.txt              # Основные зависимости
@@ -213,7 +213,7 @@ cmd/
 
 ## Хранение данных
 
-Все данные хранятся в `~/.local/share/ssh-commander/`:
+Все данные хранятся в `~/.local/share/opsdesk/`:
 
 | Файл | Описание |
 |------|----------|
@@ -257,12 +257,12 @@ make clean        # Очистка артефактов сборки
 ## CLI-аргументы
 
 ```bash
-ssh-commander              # Обычный запуск (с мастер-паролем)
-ssh-commander --no-auth    # Без мастер-пароля
-ssh-commander --reset      # Сброс данных (с подтверждением)
+opsdesk              # Обычный запуск (с мастер-паролем)
+opsdesk --no-auth    # Без мастер-пароля
+opsdesk --reset      # Сброс данных (с подтверждением)
 ```
 
-Для бинарника: `./dist/ssh-commander --no-auth`
+Для бинарника: `./dist/opsdesk --no-auth`
 
 ## Известные ограничения
 

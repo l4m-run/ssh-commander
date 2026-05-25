@@ -632,12 +632,12 @@ class FilePanel(QWidget):
 
         mime = QMimeData()
         mime.setData(
-            "application/x-ssh-commander-files",
+            "application/x-opsdesk-files",
             json.dumps(data).encode("utf-8"),
         )
         # Сохраняем ID панели-источника
         mime.setData(
-            "application/x-ssh-commander-source",
+            "application/x-opsdesk-source",
             str(id(self)).encode("utf-8"),
         )
 
@@ -650,10 +650,10 @@ class FilePanel(QWidget):
 
     def _drag_enter(self, event) -> None:
         """Принять drag с нашим MIME-типом."""
-        if event.mimeData().hasFormat("application/x-ssh-commander-files"):
+        if event.mimeData().hasFormat("application/x-opsdesk-files"):
             # Не принимаем drop на себя же
             source_id = event.mimeData().data(
-                "application/x-ssh-commander-source"
+                "application/x-opsdesk-source"
             ).data().decode("utf-8")
             if source_id != str(id(self)):
                 event.acceptProposedAction()
@@ -662,9 +662,9 @@ class FilePanel(QWidget):
 
     def _drag_move(self, event) -> None:
         """Продолжение drag."""
-        if event.mimeData().hasFormat("application/x-ssh-commander-files"):
+        if event.mimeData().hasFormat("application/x-opsdesk-files"):
             source_id = event.mimeData().data(
-                "application/x-ssh-commander-source"
+                "application/x-opsdesk-source"
             ).data().decode("utf-8")
             if source_id != str(id(self)):
                 event.acceptProposedAction()
@@ -674,13 +674,13 @@ class FilePanel(QWidget):
     def _drop_event(self, event) -> None:
         """Обработка drop - отправляем сигнал."""
         mime = event.mimeData()
-        if not mime.hasFormat("application/x-ssh-commander-files"):
+        if not mime.hasFormat("application/x-opsdesk-files"):
             event.ignore()
             return
 
-        raw = mime.data("application/x-ssh-commander-files").data()
+        raw = mime.data("application/x-opsdesk-files").data()
         source_id = mime.data(
-            "application/x-ssh-commander-source"
+            "application/x-opsdesk-source"
         ).data().decode("utf-8")
 
         files_data = json.loads(raw.decode("utf-8"))

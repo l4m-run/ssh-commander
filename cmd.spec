@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Конфигурация PyInstaller для SSH Commander."""
+"""Конфигурация PyInstaller для OpsDesk."""
 
 a = Analysis(
     ['src/main.py'],
@@ -29,7 +29,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ssh-commander',
+    name='opsdesk',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -3,7 +3,7 @@
 VENV = .venv
 PYTHON = $(VENV)/bin/python
 PIP = $(VENV)/bin/pip
-APP_NAME = ssh-commander
+APP_NAME = opsdesk
 INSTALL_DIR = $(HOME)/.local/bin
 DESKTOP_DIR = $(HOME)/.local/share/applications
 ICON_DIR = $(HOME)/.local/share/icons
@@ -29,18 +29,18 @@ install: build
 	mkdir -p $(INSTALL_DIR)
 	cp dist/$(APP_NAME) $(INSTALL_DIR)/
 	mkdir -p $(DESKTOP_DIR)
-	cp resources/ssh-commander.desktop $(DESKTOP_DIR)/
+	cp resources/opsdesk.desktop $(DESKTOP_DIR)/
 	mkdir -p $(ICON_DIR)
 	@if [ -f resources/icons/app.png ]; then \
-		cp resources/icons/app.png $(ICON_DIR)/ssh-commander.png; \
+		cp resources/icons/app.png $(ICON_DIR)/opsdesk.png; \
 	fi
 	@echo "Установлено. Приложение доступно в меню Ubuntu."
 
 # Удаление
 uninstall:
 	rm -f $(INSTALL_DIR)/$(APP_NAME)
-	rm -f $(DESKTOP_DIR)/ssh-commander.desktop
-	rm -f $(ICON_DIR)/ssh-commander.png
+	rm -f $(DESKTOP_DIR)/opsdesk.desktop
+	rm -f $(ICON_DIR)/opsdesk.png
 	@echo "Удалено."
 
 # Линтер
