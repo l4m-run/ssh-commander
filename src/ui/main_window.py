@@ -1132,9 +1132,26 @@ class MainWindow(QMainWindow):
         # Импорт БД
         from src.models.db_connection import DbConnectionConfig
         db_imported = 0
+        db_skipped = 0
         all_conns = self._db.get_all_connections()
+        existing_db = self._db.get_all_db_connections()
+        existing_db_keys = {
+            (dc.name, dc.db_type, dc.db_host, dc.db_port)
+            for dc in existing_db
+        }
         for dc_item in db_list:
             if not isinstance(dc_item, dict):
+                continue
+
+            # Проверка дубля
+            dc_key = (
+                dc_item.get("name", ""),
+                dc_item.get("db_type", "postgresql"),
+                dc_item.get("db_host", "localhost"),
+                dc_item.get("db_port", 5432),
+            )
+            if dc_key in existing_db_keys:
+                db_skipped += 1
                 continue
 
             ssh_conn_id = None
@@ -1171,8 +1188,19 @@ class MainWindow(QMainWindow):
         # Импорт секретов
         from src.models.secret import SecretEntry
         secrets_imported = 0
+        secrets_skipped = 0
+        existing_secrets = self._db.get_all_secrets()
+        existing_secret_keys = {
+            (s.name, s.username) for s in existing_secrets
+        }
         for s_item in secrets_list:
             if not isinstance(s_item, dict):
+                continue
+
+            # Проверка дубля
+            s_key = (s_item.get("name", ""), s_item.get("username", ""))
+            if s_key in existing_secret_keys:
+                secrets_skipped += 1
                 continue
 
             encrypted_pass = ""
@@ -1208,8 +1236,12 @@ class MainWindow(QMainWindow):
             )
         if db_imported:
             parts.append(f"{db_imported} БД")
+        if db_skipped:
+            parts.append(f"{db_skipped} БД пропущено (дубли)")
         if secrets_imported:
             parts.append(f"{secrets_imported} секретов")
+        if secrets_skipped:
+            parts.append(f"{secrets_skipped} секретов пропущено (дубли)")
 
         msg = "Импортировано: " + ", ".join(parts) if parts else "Нечего импортировать"
         QMessageBox.information(self, "Импорт", msg)
