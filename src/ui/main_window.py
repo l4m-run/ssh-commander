@@ -55,6 +55,7 @@ from src.ui.file_manager import FileManager
 from src.ui.db_browser import DatabaseBrowser
 from src.ui.docker_widget import DockerManagerWidget
 from src.ui.mass_command import MassCommandWidget
+from src.ui.network_tools import NetworkToolsWidget
 from src.ui.secret_manager import SecretManager
 from src.ui.terminal_widget import TerminalWidget
 
@@ -130,6 +131,11 @@ class MainWindow(QMainWindow):
         docker_action.setShortcut("Ctrl+Shift+D")
         docker_action.triggered.connect(self._open_docker_manager)
         toolbar.addAction(docker_action)
+
+        net_action = QAction("Сеть", self)
+        net_action.setShortcut("Ctrl+Shift+N")
+        net_action.triggered.connect(self._open_network_tools)
+        toolbar.addAction(net_action)
 
         # Spacer + кнопки справа
         from PySide6.QtWidgets import QSizePolicy
@@ -500,7 +506,8 @@ class MainWindow(QMainWindow):
         # Скрываем боковые панели для файлового менеджера, браузера БД и секретов
         hide_panels = isinstance(
             widget, (FileManager, DatabaseBrowser, SecretManager,
-                     MassCommandWidget, DockerManagerWidget)
+                     MassCommandWidget, DockerManagerWidget,
+                     NetworkToolsWidget)
         )
         self._sidebar.setVisible(not hide_panels)
         self._command_panel.setVisible(not hide_panels)
@@ -934,13 +941,29 @@ class MainWindow(QMainWindow):
         tab_idx = self._tabs.addTab(dw, "Docker")
         self._tabs.setCurrentIndex(tab_idx)
 
+    def _open_network_tools(self) -> None:
+        """Открыть сетевые утилиты."""
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), NetworkToolsWidget):
+                self._tabs.setCurrentIndex(i)
+                return
+
+        nw = NetworkToolsWidget(self._db)
+
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(nw, "Сеть")
+        self._tabs.setCurrentIndex(tab_idx)
+
     def _show_connections(self) -> None:
         """Переключиться на режим подключений."""
         for i in range(self._tabs.count()):
             widget = self._tabs.widget(i)
             if not isinstance(
                 widget, (FileManager, DatabaseBrowser, SecretManager,
-                         MassCommandWidget, DockerManagerWidget)
+                         MassCommandWidget, DockerManagerWidget,
+                         NetworkToolsWidget)
             ):
                 self._tabs.setCurrentIndex(i)
                 return
