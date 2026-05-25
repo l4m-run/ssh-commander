@@ -25,3 +25,8 @@ build/
 
 # Рабочая документация
 .docs/
+
+# Файлы экспорта
+ssh_commander_full_*.json
+ssh_connections.json
+export.*
