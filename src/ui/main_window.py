@@ -53,6 +53,7 @@ from src.ui.command_panel import CommandPanel
 from src.ui.connection_dialog import ConnectionDialog
 from src.ui.file_manager import FileManager
 from src.ui.db_browser import DatabaseBrowser
+from src.ui.diff_viewer import DiffViewerWidget
 from src.ui.docker_widget import DockerManagerWidget
 from src.ui.mass_command import MassCommandWidget
 from src.ui.network_tools import NetworkToolsWidget
@@ -136,6 +137,11 @@ class MainWindow(QMainWindow):
         net_action.setShortcut("Ctrl+Shift+N")
         net_action.triggered.connect(self._open_network_tools)
         toolbar.addAction(net_action)
+
+        diff_action = QAction("Сравнение", self)
+        diff_action.setShortcut("Ctrl+Shift+F")
+        diff_action.triggered.connect(self._open_diff_viewer)
+        toolbar.addAction(diff_action)
 
         # Spacer + кнопки справа
         from PySide6.QtWidgets import QSizePolicy
@@ -507,7 +513,7 @@ class MainWindow(QMainWindow):
         hide_panels = isinstance(
             widget, (FileManager, DatabaseBrowser, SecretManager,
                      MassCommandWidget, DockerManagerWidget,
-                     NetworkToolsWidget)
+                     NetworkToolsWidget, DiffViewerWidget)
         )
         self._sidebar.setVisible(not hide_panels)
         self._command_panel.setVisible(not hide_panels)
@@ -956,6 +962,21 @@ class MainWindow(QMainWindow):
         tab_idx = self._tabs.addTab(nw, "Сеть")
         self._tabs.setCurrentIndex(tab_idx)
 
+    def _open_diff_viewer(self) -> None:
+        """Открыть сравнение файлов."""
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), DiffViewerWidget):
+                self._tabs.setCurrentIndex(i)
+                return
+
+        dv = DiffViewerWidget(self._db)
+
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(dv, "Сравнение")
+        self._tabs.setCurrentIndex(tab_idx)
+
     def _show_connections(self) -> None:
         """Переключиться на режим подключений."""
         for i in range(self._tabs.count()):
@@ -963,7 +984,7 @@ class MainWindow(QMainWindow):
             if not isinstance(
                 widget, (FileManager, DatabaseBrowser, SecretManager,
                          MassCommandWidget, DockerManagerWidget,
-                         NetworkToolsWidget)
+                         NetworkToolsWidget, DiffViewerWidget)
             ):
                 self._tabs.setCurrentIndex(i)
                 return
