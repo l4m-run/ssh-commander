@@ -609,7 +609,7 @@ class MainWindow(QMainWindow):
             return
 
         # Формируем данные для экспорта
-        data = []
+        ssh_data = []
         password_errors = 0
         for conn in connections:
             item = conn.to_dict()
@@ -629,13 +629,51 @@ class MainWindow(QMainWindow):
                     )
                     password_errors += 1
 
-            data.append(item)
+            ssh_data.append(item)
+
+        # Подключения к БД
+        db_data = []
+        db_conns = self._db.get_all_db_connections()
+        for dc in db_conns:
+            dc_item = dc.to_dict()
+            dc_item.pop("id", None)
+            # Заменяем ssh_connection_id на имя SSH-сервера для портативности
+            if dc.ssh_connection_id:
+                ssh_conn = self._db.get_connection(dc.ssh_connection_id)
+                if ssh_conn:
+                    dc_item["ssh_connection_ref"] = {
+                        "host": ssh_conn.host,
+                        "port": ssh_conn.port,
+                        "username": ssh_conn.username,
+                    }
+            dc_item.pop("ssh_connection_id", None)
+
+            # Расшифровка пароля БД
+            dc_item.pop("encrypted_db_password", None)
+            if with_passwords and dc.encrypted_db_password:
+                try:
+                    dc_item["db_password"] = crypto.decrypt(
+                        dc.encrypted_db_password
+                    )
+                except Exception:
+                    password_errors += 1
+
+            db_data.append(dc_item)
+
+        export_data = {
+            "connections": ssh_data,
+            "db_connections": db_data,
+        }
 
         try:
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                json.dump(export_data, f, ensure_ascii=False, indent=2)
 
-            msg = f"Экспортировано {len(data)} подключений."
+            total = len(ssh_data) + len(db_data)
+            msg = (
+                f"Экспортировано: {len(ssh_data)} SSH "
+                f"+ {len(db_data)} БД подключений."
+            )
             if with_passwords:
                 msg += "\nПароли включены (открытый текст)."
                 if password_errors:
@@ -664,12 +702,19 @@ class MainWindow(QMainWindow):
 
         try:
             with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+                raw_data = json.load(f)
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", f"Ошибка чтения файла:\n{e}")
             return
 
-        if not isinstance(data, list):
+        # Обратная совместимость: старый формат (list) и новый (dict)
+        if isinstance(raw_data, list):
+            ssh_list = raw_data
+            db_list: list = []
+        elif isinstance(raw_data, dict):
+            ssh_list = raw_data.get("connections", [])
+            db_list = raw_data.get("db_connections", [])
+        else:
             QMessageBox.warning(self, "Ошибка", "Неверный формат файла.")
             return
 
@@ -682,7 +727,7 @@ class MainWindow(QMainWindow):
         imported = 0
         skipped = 0
         with_passwords = 0
-        for item in data:
+        for item in ssh_list:
             if not isinstance(item, dict) or "host" not in item:
                 continue
             host = item.get("host", "")
@@ -718,8 +763,51 @@ class MainWindow(QMainWindow):
             self._db.save_connection(conn)
             imported += 1
 
+        # Импорт подключений к БД
+        from src.models.db_connection import DbConnectionConfig
+        db_imported = 0
+        all_conns = self._db.get_all_connections()  # обновлённый список
+        for dc_item in db_list:
+            if not isinstance(dc_item, dict):
+                continue
+
+            # Находим SSH-подключение по референсу
+            ssh_conn_id = None
+            ref = dc_item.get("ssh_connection_ref")
+            if ref and isinstance(ref, dict):
+                for c in all_conns:
+                    if (c.host == ref.get("host")
+                            and c.port == ref.get("port")
+                            and c.username == ref.get("username")):
+                        ssh_conn_id = c.id
+                        break
+
+            # Шифруем пароль БД
+            encrypted_db_pass = ""
+            plain_db_pass = dc_item.get("db_password", "")
+            if plain_db_pass:
+                try:
+                    encrypted_db_pass = crypto.encrypt(plain_db_pass)
+                except Exception:
+                    pass
+
+            dc = DbConnectionConfig(
+                name=dc_item.get("name", ""),
+                ssh_connection_id=ssh_conn_id,
+                db_type=dc_item.get("db_type", "postgresql"),
+                db_host=dc_item.get("db_host", "localhost"),
+                db_port=dc_item.get("db_port", 5432),
+                db_user=dc_item.get("db_user", ""),
+                encrypted_db_password=encrypted_db_pass,
+                database_name=dc_item.get("database_name", ""),
+            )
+            self._db.save_db_connection(dc)
+            db_imported += 1
+
         self._refresh_connections()
-        msg = f"Импортировано: {imported}"
+        msg = f"Импортировано: {imported} SSH"
+        if db_imported:
+            msg += f" + {db_imported} БД"
         if with_passwords:
             msg += f"\nС паролями: {with_passwords}"
         if skipped:

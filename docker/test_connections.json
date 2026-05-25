@@ -1,10 +1,42 @@
-[
-  {
-    "name": "Docker SSH (test)",
-    "host": "localhost",
-    "port": 2222,
-    "username": "testuser",
-    "password": "testpass",
-    "group_name": "Docker Test"
-  }
-]
+{
+  "connections": [
+    {
+      "name": "Docker SSH (test)",
+      "host": "localhost",
+      "port": 2222,
+      "username": "testuser",
+      "password": "testpass",
+      "group_name": "Docker Test"
+    }
+  ],
+  "db_connections": [
+    {
+      "name": "Docker PostgreSQL",
+      "ssh_connection_ref": {
+        "host": "localhost",
+        "port": 2222,
+        "username": "testuser"
+      },
+      "db_type": "postgresql",
+      "db_host": "postgres",
+      "db_port": 5432,
+      "db_user": "postgres",
+      "db_password": "pgpass123",
+      "database_name": "testdb"
+    },
+    {
+      "name": "Docker MySQL",
+      "ssh_connection_ref": {
+        "host": "localhost",
+        "port": 2222,
+        "username": "testuser"
+      },
+      "db_type": "mysql",
+      "db_host": "mysql",
+      "db_port": 3306,
+      "db_user": "root",
+      "db_password": "mypass123",
+      "database_name": "testdb"
+    }
+  ]
+}

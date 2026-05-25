@@ -11,6 +11,7 @@ from pathlib import Path
 
 from src.models.command import SavedCommand
 from src.models.connection import Connection
+from src.models.db_connection import DbConnectionConfig
 
 
 class Database:
@@ -22,7 +23,7 @@ class Database:
     """
 
     # Текущая версия схемы
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -59,6 +60,8 @@ class Database:
 
         if current_version < 1:
             self._migrate_v1()
+        if current_version < 2:
+            self._migrate_v2()
 
         if not row:
             self.conn.execute(
@@ -95,6 +98,24 @@ class Database:
                 category TEXT NOT NULL DEFAULT '',
                 sort_order INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (connection_id) REFERENCES connections(id) ON DELETE SET NULL
+            );
+        """)
+
+    def _migrate_v2(self) -> None:
+        """Миграция v2: таблица подключений к БД."""
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS db_connections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT '',
+                ssh_connection_id INTEGER,
+                db_type TEXT NOT NULL DEFAULT 'postgresql',
+                db_host TEXT NOT NULL DEFAULT 'localhost',
+                db_port INTEGER NOT NULL DEFAULT 5432,
+                db_user TEXT NOT NULL DEFAULT '',
+                encrypted_db_password TEXT NOT NULL DEFAULT '',
+                database_name TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (ssh_connection_id)
+                    REFERENCES connections(id) ON DELETE SET NULL
             );
         """)
 
@@ -246,5 +267,65 @@ class Database:
         self.conn.execute(
             "UPDATE connections SET encrypted_password = ? WHERE id = ?",
             (encrypted_password, conn_id),
+        )
+        self.conn.commit()
+
+    # --- Подключения к БД ---
+
+    def get_all_db_connections(self) -> list[DbConnectionConfig]:
+        """Получить все подключения к БД."""
+        rows = self.conn.execute(
+            "SELECT * FROM db_connections ORDER BY name"
+        ).fetchall()
+        return [DbConnectionConfig.from_dict(dict(row)) for row in rows]
+
+    def get_db_connection(self, db_conn_id: int) -> DbConnectionConfig | None:
+        """Получить подключение к БД по ID."""
+        row = self.conn.execute(
+            "SELECT * FROM db_connections WHERE id = ?", (db_conn_id,)
+        ).fetchone()
+        return DbConnectionConfig.from_dict(dict(row)) if row else None
+
+    def save_db_connection(self, db_conn: DbConnectionConfig) -> int:
+        """Сохранить подключение к БД (создать или обновить).
+
+        Returns:
+            ID сохранённого подключения.
+        """
+        data = db_conn.to_dict()
+        if db_conn.id is None:
+            cursor = self.conn.execute(
+                """INSERT INTO db_connections
+                   (name, ssh_connection_id, db_type, db_host, db_port,
+                    db_user, encrypted_db_password, database_name)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    data["name"], data["ssh_connection_id"],
+                    data["db_type"], data["db_host"], data["db_port"],
+                    data["db_user"], data["encrypted_db_password"],
+                    data["database_name"],
+                ),
+            )
+            self.conn.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+        self.conn.execute(
+            """UPDATE db_connections SET
+               name=?, ssh_connection_id=?, db_type=?, db_host=?,
+               db_port=?, db_user=?, encrypted_db_password=?, database_name=?
+               WHERE id=?""",
+            (
+                data["name"], data["ssh_connection_id"],
+                data["db_type"], data["db_host"], data["db_port"],
+                data["db_user"], data["encrypted_db_password"],
+                data["database_name"], data["id"],
+            ),
+        )
+        self.conn.commit()
+        return db_conn.id
+
+    def delete_db_connection(self, db_conn_id: int) -> None:
+        """Удалить подключение к БД по ID."""
+        self.conn.execute(
+            "DELETE FROM db_connections WHERE id = ?", (db_conn_id,)
         )
         self.conn.commit()

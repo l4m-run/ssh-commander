@@ -67,6 +67,8 @@ class DbTableView(QWidget):
         self._order_by: str = ""
         self._order_desc: bool = False
         self._editing = False
+        # Старые значения ячеек для отслеживания изменений
+        self._old_values: dict[tuple[int, int], str] = {}
 
         self._setup_ui()
 
@@ -266,6 +268,7 @@ class DbTableView(QWidget):
             editable: Разрешить редактирование.
         """
         self._editing = True  # Блокируем обработку cellChanged
+        self._old_values.clear()
 
         self._table.clear()
         self._table.setColumnCount(len(columns))
@@ -288,6 +291,9 @@ class DbTableView(QWidget):
                     item.setForeground(Qt.GlobalColor.gray)
 
                 self._table.setItem(row_idx, col_idx, item)
+                # Сохраняем старое значение
+                if editable:
+                    self._old_values[(row_idx, col_idx)] = item.text()
 
         # Автоширина колонок
         header = self._table.horizontalHeader()
@@ -353,8 +359,15 @@ class DbTableView(QWidget):
         if not item:
             return
 
-        new_value = item.text()
-        if new_value == "NULL":
+        new_text = item.text()
+        old_text = self._old_values.get((row, col), "")
+
+        # Ничего не изменилось
+        if new_text == old_text:
+            return
+
+        new_value: str | None = new_text
+        if new_text.upper() == "NULL":
             new_value = None
 
         # Определяем колонку
@@ -374,24 +387,6 @@ class DbTableView(QWidget):
             pk_item = self._table.item(row, pk_idx)
             pk_values.append(pk_item.text() if pk_item else None)
 
-        # Подтверждение
-        pk_info = ", ".join(
-            f"{k}={v}" for k, v in zip(self._pk_columns, pk_values)
-        )
-        reply = QMessageBox.question(
-            self,
-            "Подтверждение изменения",
-            f"Изменить {col_info.name} = '{new_value}'\n"
-            f"в таблице {self._table_name}\n"
-            f"WHERE {pk_info}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-
-        if reply != QMessageBox.StandardButton.Yes:
-            # Откатываем
-            self._reload_data()
-            return
-
         # Выполняем UPDATE
         result = self._db.update_cell(
             self._table_name,
@@ -401,12 +396,21 @@ class DbTableView(QWidget):
             new_value,
         )
 
+        pk_info = ", ".join(
+            f"{k}={v}" for k, v in zip(self._pk_columns, pk_values)
+        )
+
         if result.is_error:
             QMessageBox.warning(
                 self, "Ошибка обновления", result.error,
             )
-            self._reload_data()
+            # Откатываем значение
+            self._editing = True
+            item.setText(old_text)
+            self._editing = False
         else:
+            # Обновляем старое значение
+            self._old_values[(row, col)] = new_text
             logger.info(
                 "Обновлено: %s.%s WHERE %s",
                 self._table_name, col_info.name, pk_info,

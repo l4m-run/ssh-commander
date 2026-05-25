@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from src.core.crypto import crypto
 from src.core.db_manager import DatabaseConnection, DbType, DEFAULT_PORTS
+from src.models.db_connection import DbConnectionConfig
 from src.ui.db_table_view import DbTableView
 
 if TYPE_CHECKING:
@@ -66,9 +67,11 @@ class DatabaseBrowser(QWidget):
         self._app_db = app_db
         self._db_conn = DatabaseConnection()
         self._connections: list[Connection] = []
+        self._saved_db_conns: list[DbConnectionConfig] = []
 
         self._setup_ui()
         self._refresh_connections()
+        self._refresh_saved_db_conns()
 
     def _setup_ui(self) -> None:
         """Создание UI."""
@@ -114,6 +117,16 @@ class DatabaseBrowser(QWidget):
         """Создание формы подключения."""
         group = QGroupBox("Подключение к базе данных")
         form_layout = QVBoxLayout(group)
+
+        # Строка 0: сохранённые подключения
+        row0 = QHBoxLayout()
+        row0.addWidget(QLabel("Сохранённые:"))
+        self._saved_combo = QComboBox()
+        self._saved_combo.setMinimumWidth(250)
+        self._saved_combo.currentIndexChanged.connect(self._on_saved_db_selected)
+        row0.addWidget(self._saved_combo, stretch=1)
+        row0.addStretch()
+        form_layout.addLayout(row0)
 
         # Первая строка: сервер + тип БД
         row1 = QHBoxLayout()
@@ -212,6 +225,16 @@ class DatabaseBrowser(QWidget):
         self._disconnect_btn.clicked.connect(self._disconnect)
         self._disconnect_btn.setEnabled(False)
         row3.addWidget(self._disconnect_btn)
+
+        self._save_btn = QPushButton("Сохранить")
+        self._save_btn.setStyleSheet(btn_style_secondary)
+        self._save_btn.clicked.connect(self._save_current_config)
+        row3.addWidget(self._save_btn)
+
+        self._delete_btn = QPushButton("Удалить")
+        self._delete_btn.setStyleSheet(btn_style_secondary)
+        self._delete_btn.clicked.connect(self._delete_current_config)
+        row3.addWidget(self._delete_btn)
 
         self._status_label = QLabel("")
         self._status_label.setStyleSheet("color: #71717A; padding-left: 8px;")
@@ -579,6 +602,133 @@ class DatabaseBrowser(QWidget):
             QMessageBox.warning(
                 self, "Ошибка экспорта", str(e),
             )
+
+    # --- Сохранённые подключения ---
+
+    def _refresh_saved_db_conns(self) -> None:
+        """Обновить комбобокс сохранённых подключений к БД."""
+        self._saved_combo.blockSignals(True)
+        self._saved_combo.clear()
+        self._saved_combo.addItem("(новое подключение)", None)
+        self._saved_db_conns = self._app_db.get_all_db_connections()
+        for dc in self._saved_db_conns:
+            self._saved_combo.addItem(dc.display_name, dc.id)
+        self._saved_combo.blockSignals(False)
+
+    def _on_saved_db_selected(self, index: int) -> None:
+        """Выбрано сохранённое подключение - заполнить форму."""
+        dc_id = self._saved_combo.currentData()
+        if dc_id is None:
+            return
+        dc = self._app_db.get_db_connection(dc_id)
+        if not dc:
+            return
+
+        # Тип БД
+        type_map = {"postgresql": 0, "mysql": 1, "sqlite": 2}
+        self._type_combo.setCurrentIndex(type_map.get(dc.db_type, 0))
+
+        # SSH-сервер
+        ssh_idx = 0  # (без туннеля)
+        if dc.ssh_connection_id:
+            for i in range(self._server_combo.count()):
+                if self._server_combo.itemData(i) == dc.ssh_connection_id:
+                    ssh_idx = i
+                    break
+        self._server_combo.setCurrentIndex(ssh_idx)
+
+        # Поля
+        self._db_host_edit.setText(dc.db_host)
+        self._db_port_edit.setText(str(dc.db_port))
+        self._db_user_edit.setText(dc.db_user)
+        self._db_name_edit.setText(dc.database_name)
+
+        # Пароль БД
+        if dc.encrypted_db_password:
+            try:
+                self._db_pass_edit.setText(
+                    crypto.decrypt(dc.encrypted_db_password)
+                )
+            except Exception:
+                self._db_pass_edit.clear()
+        else:
+            self._db_pass_edit.clear()
+
+    def _save_current_config(self) -> None:
+        """Сохранить текущие параметры формы как подключение к БД."""
+        from PySide6.QtWidgets import QInputDialog
+
+        db_type = self._type_combo.currentData()
+        if db_type is None:
+            return
+
+        # Определяем, редактируем или создаём
+        dc_id = self._saved_combo.currentData()
+        default_name = ""
+        if dc_id:
+            dc = self._app_db.get_db_connection(dc_id)
+            if dc:
+                default_name = dc.name
+
+        name, ok = QInputDialog.getText(
+            self, "Сохранить подключение",
+            "Имя подключения:", text=default_name,
+        )
+        if not ok or not name.strip():
+            return
+
+        # Шифруем пароль БД
+        db_password = self._db_pass_edit.text().strip()
+        encrypted = ""
+        if db_password:
+            try:
+                encrypted = crypto.encrypt(db_password)
+            except Exception as e:
+                logger.warning("Не удалось зашифровать пароль БД: %s", e)
+
+        config = DbConnectionConfig(
+            id=dc_id,
+            name=name.strip(),
+            ssh_connection_id=self._server_combo.currentData(),
+            db_type=db_type.value,
+            db_host=self._db_host_edit.text().strip() or "localhost",
+            db_port=int(self._db_port_edit.text().strip() or "0"),
+            db_user=self._db_user_edit.text().strip(),
+            encrypted_db_password=encrypted,
+            database_name=self._db_name_edit.text().strip(),
+        )
+        self._app_db.save_db_connection(config)
+        self._refresh_saved_db_conns()
+
+        # Выбираем сохранённое
+        for i in range(self._saved_combo.count()):
+            if self._saved_combo.itemText(i) == name.strip():
+                self._saved_combo.setCurrentIndex(i)
+                break
+
+        self._status_label.setText(f"Сохранено: {name.strip()}")
+        self._status_label.setStyleSheet(
+            "color: #10B981; padding-left: 8px;"
+        )
+
+    def _delete_current_config(self) -> None:
+        """Удалить текущее сохранённое подключение."""
+        dc_id = self._saved_combo.currentData()
+        if dc_id is None:
+            QMessageBox.information(
+                self, "Удаление", "Выберите сохранённое подключение",
+            )
+            return
+
+        reply = QMessageBox.question(
+            self, "Удаление",
+            f"Удалить подключение '{self._saved_combo.currentText()}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._app_db.delete_db_connection(dc_id)
+            self._refresh_saved_db_conns()
+            self._status_label.setText("Подключение удалено")
 
     # --- Публичные ---
 
