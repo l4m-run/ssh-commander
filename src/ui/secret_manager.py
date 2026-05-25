@@ -467,13 +467,15 @@ class SecretDialog(QDialog):
         form.addRow("Логин:", self._username_edit)
 
         # Пароль с кнопкой показать
-        pass_row = QHBoxLayout()
+        pass_widget = QWidget()
+        pass_row = QHBoxLayout(pass_widget)
+        pass_row.setContentsMargins(0, 0, 0, 0)
         self._pass_edit = QLineEdit()
         self._pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        pass_row.addWidget(self._pass_edit)
+        pass_row.addWidget(self._pass_edit, stretch=1)
 
         toggle_btn = QPushButton("Показать")
-        toggle_btn.setFixedWidth(70)
+        toggle_btn.setMinimumWidth(80)
         toggle_btn.setCheckable(True)
         toggle_btn.toggled.connect(
             lambda checked: self._pass_edit.setEchoMode(
@@ -487,7 +489,7 @@ class SecretDialog(QDialog):
             )
         )
         pass_row.addWidget(toggle_btn)
-        form.addRow("Пароль:", pass_row)
+        form.addRow("Пароль:", pass_widget)
 
         self._url_edit = QLineEdit()
         self._url_edit.setPlaceholderText("https://example.com")
