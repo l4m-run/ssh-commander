@@ -904,6 +904,7 @@ class MainWindow(QMainWindow):
             return
 
         from datetime import datetime
+        from PySide6.QtWidgets import QFileDialog
         default_name = f"ssh_commander_full_{datetime.now().strftime('%Y-%m-%d_%H-%M')}.json"
 
         path, _ = QFileDialog.getSaveFileName(
