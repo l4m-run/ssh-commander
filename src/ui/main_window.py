@@ -817,7 +817,13 @@ class MainWindow(QMainWindow):
         # Импорт подключений к БД
         from src.models.db_connection import DbConnectionConfig
         db_imported = 0
+        db_skipped = 0
         all_conns = self._db.get_all_connections()  # обновлённый список
+        existing_db = self._db.get_all_db_connections()
+        existing_db_keys = {
+            (dc.name, dc.db_type, dc.db_host, dc.db_port, dc.ssh_connection_id)
+            for dc in existing_db
+        }
         for dc_item in db_list:
             if not isinstance(dc_item, dict):
                 continue
@@ -832,6 +838,18 @@ class MainWindow(QMainWindow):
                             and c.username == ref.get("username")):
                         ssh_conn_id = c.id
                         break
+
+            # Проверка дубля
+            dc_key = (
+                dc_item.get("name", ""),
+                dc_item.get("db_type", "postgresql"),
+                dc_item.get("db_host", "localhost"),
+                dc_item.get("db_port", 5432),
+                ssh_conn_id,
+            )
+            if dc_key in existing_db_keys:
+                db_skipped += 1
+                continue
 
             # Шифруем пароль БД
             encrypted_db_pass = ""
@@ -859,10 +877,12 @@ class MainWindow(QMainWindow):
         msg = f"Импортировано: {imported} SSH"
         if db_imported:
             msg += f" + {db_imported} БД"
+        if db_skipped:
+            msg += f"\nПропущено дублей БД: {db_skipped}"
         if with_passwords:
             msg += f"\nС паролями: {with_passwords}"
         if skipped:
-            msg += f"\nПропущено дублей: {skipped}"
+            msg += f"\nПропущено дублей SSH: {skipped}"
         QMessageBox.information(self, "Импорт", msg)
 
     def _open_file_manager(self) -> None:

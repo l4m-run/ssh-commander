@@ -77,11 +77,20 @@ class _NetWorker(QRunnable):
                 result = self._run_ssh()
             else:
                 result = self._run_local()
-            self.signals.output.emit(result)
+            try:
+                self.signals.output.emit(result)
+            except RuntimeError:
+                pass
         except Exception as e:
-            self.signals.output.emit(f"Ошибка: {e}")
+            try:
+                self.signals.output.emit(f"Ошибка: {e}")
+            except RuntimeError:
+                pass
         finally:
-            self.signals.finished.emit()
+            try:
+                self.signals.finished.emit()
+            except RuntimeError:
+                pass
 
     def _run_local(self) -> str:
         """Выполнить локально."""
