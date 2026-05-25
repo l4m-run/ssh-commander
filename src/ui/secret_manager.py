@@ -528,7 +528,12 @@ class SecretDialog(QDialog):
         self._category_edit.setText(secret.category)
         self._notes_edit.setPlainText(secret.notes)
         if secret.encrypted_password:
-            self._pass_edit.setPlaceholderText("••••••••")
+            try:
+                self._pass_edit.setText(
+                    crypto.decrypt(secret.encrypted_password)
+                )
+            except Exception:
+                self._pass_edit.setPlaceholderText("(ошибка расшифровки)")
 
     def _on_save(self) -> None:
         """Валидация и сохранение."""
