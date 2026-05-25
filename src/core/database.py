@@ -12,6 +12,7 @@ from pathlib import Path
 from src.models.command import SavedCommand
 from src.models.connection import Connection
 from src.models.db_connection import DbConnectionConfig
+from src.models.note import ServerNote
 from src.models.secret import SecretEntry
 
 
@@ -24,7 +25,7 @@ class Database:
     """
 
     # Текущая версия схемы
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
@@ -65,6 +66,8 @@ class Database:
             self._migrate_v2()
         if current_version < 3:
             self._migrate_v3()
+        if current_version < 4:
+            self._migrate_v4()
 
         if not row:
             self.conn.execute(
@@ -135,6 +138,21 @@ class Database:
                 category TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL DEFAULT ''
+            );
+        """)
+
+    def _migrate_v4(self) -> None:
+        """Миграция v4: таблица заметок к серверам."""
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS server_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id INTEGER,
+                title TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT '',
+                FOREIGN KEY (connection_id)
+                    REFERENCES connections(id) ON DELETE CASCADE
             );
         """)
 
@@ -406,4 +424,54 @@ class Database:
     def delete_secret(self, secret_id: int) -> None:
         """Удалить секрет по ID."""
         self.conn.execute("DELETE FROM secrets WHERE id = ?", (secret_id,))
+        self.conn.commit()
+
+    # --- Заметки ---
+
+    def get_notes_for_connection(self, connection_id: int) -> list[ServerNote]:
+        """Получить заметки для подключения."""
+        rows = self.conn.execute(
+            "SELECT * FROM server_notes WHERE connection_id = ? ORDER BY updated_at DESC",
+            (connection_id,),
+        ).fetchall()
+        return [ServerNote.from_dict(dict(row)) for row in rows]
+
+    def get_all_notes(self) -> list[ServerNote]:
+        """Получить все заметки."""
+        rows = self.conn.execute(
+            "SELECT * FROM server_notes ORDER BY updated_at DESC"
+        ).fetchall()
+        return [ServerNote.from_dict(dict(row)) for row in rows]
+
+    def save_note(self, note: ServerNote) -> int:
+        """Сохранить заметку.
+
+        Returns:
+            ID сохранённой заметки.
+        """
+        from datetime import datetime
+        now = datetime.now().isoformat()
+
+        if note.id is None:
+            cursor = self.conn.execute(
+                """INSERT INTO server_notes
+                   (connection_id, title, content, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (note.connection_id, note.title, note.content, now, now),
+            )
+            self.conn.commit()
+            return cursor.lastrowid  # type: ignore[return-value]
+
+        self.conn.execute(
+            """UPDATE server_notes SET
+               title=?, content=?, updated_at=?
+               WHERE id=?""",
+            (note.title, note.content, now, note.id),
+        )
+        self.conn.commit()
+        return note.id
+
+    def delete_note(self, note_id: int) -> None:
+        """Удалить заметку по ID."""
+        self.conn.execute("DELETE FROM server_notes WHERE id = ?", (note_id,))
         self.conn.commit()

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from src.core.crypto import crypto
 from src.models.connection import Connection
 from src.models.db_connection import DbConnectionConfig
+from src.models.note import ServerNote
 
 if TYPE_CHECKING:
     from src.core.database import Database
@@ -62,6 +63,7 @@ class ConnectionDialog(QDialog):
         if self._is_edit and connection:
             self._fill_from_connection(connection)
             self._refresh_db_list()
+            self._refresh_notes()
 
     def _setup_ui(self) -> None:
         """Создание интерфейса диалога."""
@@ -161,6 +163,53 @@ class ConnectionDialog(QDialog):
             db_group.setVisible(False)
         self._db_group = db_group
         layout.addWidget(db_group)
+
+        # --- Заметки ---
+        notes_group = QGroupBox("Заметки")
+        notes_layout = QVBoxLayout(notes_group)
+
+        self._notes_list = QListWidget()
+        self._notes_list.setMaximumHeight(80)
+        self._notes_list.currentRowChanged.connect(self._on_note_selected)
+        notes_layout.addWidget(self._notes_list)
+
+        self._note_title_edit = QLineEdit()
+        self._note_title_edit.setPlaceholderText("Заголовок заметки")
+        notes_layout.addWidget(self._note_title_edit)
+
+        from PySide6.QtWidgets import QPlainTextEdit
+        self._note_content_edit = QPlainTextEdit()
+        self._note_content_edit.setPlaceholderText("Содержимое заметки...")
+        self._note_content_edit.setMaximumHeight(120)
+        notes_layout.addWidget(self._note_content_edit)
+
+        notes_btn_row = QHBoxLayout()
+        btn_style_sm = (
+            "QPushButton { padding: 4px 10px; font-size: 12px; }"
+        )
+
+        save_note_btn = QPushButton("Сохранить заметку")
+        save_note_btn.setStyleSheet(btn_style_sm)
+        save_note_btn.clicked.connect(self._save_note)
+        notes_btn_row.addWidget(save_note_btn)
+
+        new_note_btn = QPushButton("Новая")
+        new_note_btn.setStyleSheet(btn_style_sm)
+        new_note_btn.clicked.connect(self._new_note)
+        notes_btn_row.addWidget(new_note_btn)
+
+        del_note_btn = QPushButton("Удалить")
+        del_note_btn.setStyleSheet(btn_style_sm)
+        del_note_btn.clicked.connect(self._delete_note)
+        notes_btn_row.addWidget(del_note_btn)
+
+        notes_btn_row.addStretch()
+        notes_layout.addLayout(notes_btn_row)
+
+        if not self._is_edit:
+            notes_group.setVisible(False)
+        self._notes_group = notes_group
+        layout.addWidget(notes_group)
 
         # --- Кнопки ---
         btn_layout = QHBoxLayout()
@@ -379,6 +428,88 @@ class ConnectionDialog(QDialog):
             dc_id = item.data(Qt.ItemDataRole.UserRole)
             self._app_db.delete_db_connection(dc_id)
             self._refresh_db_list()
+
+    # --- Управление заметками ---
+
+    def _refresh_notes(self) -> None:
+        """Обновить список заметок."""
+        self._notes_list.clear()
+        self._note_title_edit.clear()
+        self._note_content_edit.clear()
+        if not self._app_db or not self._connection or not self._connection.id:
+            return
+
+        notes = self._app_db.get_notes_for_connection(self._connection.id)
+        for note in notes:
+            item = QListWidgetItem(note.title or "(без заголовка)")
+            item.setData(Qt.ItemDataRole.UserRole, note.id)
+            self._notes_list.addItem(item)
+
+    def _on_note_selected(self, row: int) -> None:
+        """При выборе заметки - заполнить поля."""
+        if row < 0 or not self._app_db:
+            return
+        item = self._notes_list.item(row)
+        if not item:
+            return
+        note_id = item.data(Qt.ItemDataRole.UserRole)
+        note = self._app_db.get_notes_for_connection(
+            self._connection.id  # type: ignore[union-attr]
+        )
+        for n in note:
+            if n.id == note_id:
+                self._note_title_edit.setText(n.title)
+                self._note_content_edit.setPlainText(n.content)
+                break
+
+    def _save_note(self) -> None:
+        """Сохранить текущую заметку."""
+        if not self._app_db or not self._connection or not self._connection.id:
+            return
+
+        title = self._note_title_edit.text().strip()
+        content = self._note_content_edit.toPlainText().strip()
+        if not title and not content:
+            return
+
+        # Определяем: обновляем выбранную или создаём новую
+        note_id = None
+        item = self._notes_list.currentItem()
+        if item:
+            note_id = item.data(Qt.ItemDataRole.UserRole)
+
+        note = ServerNote(
+            id=note_id,
+            connection_id=self._connection.id,
+            title=title or "(без заголовка)",
+            content=content,
+        )
+        self._app_db.save_note(note)
+        self._refresh_notes()
+
+    def _new_note(self) -> None:
+        """Очистить поля для новой заметки."""
+        self._notes_list.clearSelection()
+        self._note_title_edit.clear()
+        self._note_content_edit.clear()
+        self._note_title_edit.setFocus()
+
+    def _delete_note(self) -> None:
+        """Удалить выбранную заметку."""
+        if not self._app_db:
+            return
+        item = self._notes_list.currentItem()
+        if not item:
+            return
+        reply = QMessageBox.question(
+            self, "Удаление",
+            f"Удалить заметку '{item.text()}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            note_id = item.data(Qt.ItemDataRole.UserRole)
+            self._app_db.delete_note(note_id)
+            self._refresh_notes()
 
 
 class DbConnectionDialog(QDialog):

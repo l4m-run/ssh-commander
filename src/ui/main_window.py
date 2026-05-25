@@ -980,10 +980,26 @@ class MainWindow(QMainWindow):
                     errors += 1
             secrets_data.append(s_item)
 
+        # Заметки
+        notes_data = []
+        all_conns_map = {c.id: c for c in self._db.get_all_connections()}
+        for note in self._db.get_all_notes():
+            n_item = note.to_dict()
+            n_item.pop("id", None)
+            # Ссылка на SSH по host:port:username
+            if note.connection_id and note.connection_id in all_conns_map:
+                c = all_conns_map[note.connection_id]
+                n_item["ssh_connection_ref"] = {
+                    "host": c.host, "port": c.port, "username": c.username,
+                }
+            n_item.pop("connection_id", None)
+            notes_data.append(n_item)
+
         export = {
             "connections": ssh_data,
             "db_connections": db_data,
             "secrets": secrets_data,
+            "notes": notes_data,
         }
 
         try:
@@ -992,7 +1008,8 @@ class MainWindow(QMainWindow):
 
             msg = (
                 f"Экспортировано: {len(ssh_data)} SSH, "
-                f"{len(db_data)} БД, {len(secrets_data)} секретов.\n"
+                f"{len(db_data)} БД, {len(secrets_data)} секретов, "
+                f"{len(notes_data)} заметок.\n"
                 f"Все пароли в открытом виде!"
             )
             if errors:
@@ -1024,10 +1041,12 @@ class MainWindow(QMainWindow):
             ssh_list = raw_data
             db_list: list = []
             secrets_list: list = []
+            notes_list: list = []
         elif isinstance(raw_data, dict):
             ssh_list = raw_data.get("connections", [])
             db_list = raw_data.get("db_connections", [])
             secrets_list = raw_data.get("secrets", [])
+            notes_list: list = raw_data.get("notes", [])
         else:
             QMessageBox.warning(self, "Ошибка", "Неверный формат файла.")
             return
@@ -1222,6 +1241,33 @@ class MainWindow(QMainWindow):
             self._db.save_secret(secret)
             secrets_imported += 1
 
+        # Импорт заметок
+        from src.models.note import ServerNote
+        notes_imported = 0
+        all_conns_for_notes = self._db.get_all_connections()
+        for n_item in notes_list:
+            if not isinstance(n_item, dict):
+                continue
+
+            # Находим SSH-подключение по референсу
+            conn_id = None
+            ref = n_item.get("ssh_connection_ref")
+            if ref and isinstance(ref, dict):
+                for c in all_conns_for_notes:
+                    if (c.host == ref.get("host")
+                            and c.port == ref.get("port")
+                            and c.username == ref.get("username")):
+                        conn_id = c.id
+                        break
+
+            note = ServerNote(
+                connection_id=conn_id,
+                title=n_item.get("title", ""),
+                content=n_item.get("content", ""),
+            )
+            self._db.save_note(note)
+            notes_imported += 1
+
         self._refresh_connections()
 
         # Итоги
@@ -1242,6 +1288,8 @@ class MainWindow(QMainWindow):
             parts.append(f"{secrets_imported} секретов")
         if secrets_skipped:
             parts.append(f"{secrets_skipped} секретов пропущено (дубли)")
+        if notes_imported:
+            parts.append(f"{notes_imported} заметок")
 
         msg = "Импортировано: " + ", ".join(parts) if parts else "Нечего импортировать"
         QMessageBox.information(self, "Импорт", msg)
