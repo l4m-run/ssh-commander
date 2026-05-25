@@ -462,10 +462,10 @@ class MainWindow(QMainWindow):
         if isinstance(widget, TerminalWidget):
             widget.setFocus()
 
-        # Скрываем боковые панели для файлового менеджера
-        is_file_manager = isinstance(widget, FileManager)
-        self._sidebar.setVisible(not is_file_manager)
-        self._command_panel.setVisible(not is_file_manager)
+        # Скрываем боковые панели для файлового менеджера и браузера БД
+        hide_panels = isinstance(widget, (FileManager, DatabaseBrowser))
+        self._sidebar.setVisible(not hide_panels)
+        self._command_panel.setVisible(not hide_panels)
 
     def _execute_saved_command(self, command_text: str) -> None:
         """Выполнить сохранённую команду в активном терминале."""
