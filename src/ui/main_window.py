@@ -1263,7 +1263,7 @@ class MainWindow(QMainWindow):
         all_conns = self._db.get_all_connections()
         existing_db = self._db.get_all_db_connections()
         existing_db_keys = {
-            (dc.name, dc.db_type, dc.db_host, dc.db_port)
+            (dc.name, dc.db_type, dc.db_host, dc.db_port, dc.database_name)
             for dc in existing_db
         }
         for dc_item in db_list:
@@ -1276,6 +1276,7 @@ class MainWindow(QMainWindow):
                 dc_item.get("db_type", "postgresql"),
                 dc_item.get("db_host", "localhost"),
                 dc_item.get("db_port", 5432),
+                dc_item.get("database_name", ""),
             )
             if dc_key in existing_db_keys:
                 db_skipped += 1
@@ -1318,14 +1319,18 @@ class MainWindow(QMainWindow):
         secrets_skipped = 0
         existing_secrets = self._db.get_all_secrets()
         existing_secret_keys = {
-            (s.name, s.username) for s in existing_secrets
+            (s.name, s.username, s.category) for s in existing_secrets
         }
         for s_item in secrets_list:
             if not isinstance(s_item, dict):
                 continue
 
             # Проверка дубля
-            s_key = (s_item.get("name", ""), s_item.get("username", ""))
+            s_key = (
+                s_item.get("name", ""),
+                s_item.get("username", ""),
+                s_item.get("category", ""),
+            )
             if s_key in existing_secret_keys:
                 secrets_skipped += 1
                 continue
