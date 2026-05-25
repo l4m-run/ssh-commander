@@ -572,12 +572,32 @@ class DatabaseBrowser(QWidget):
             QMessageBox.information(self, "Экспорт", "Нет данных для экспорта")
             return
 
+        # Формируем имя файла: сервер_база_таблица_дата-время
+        from datetime import datetime
+        parts = []
+        # Сервер (SSH)
+        conn_id = self._server_combo.currentData()
+        if conn_id is not None:
+            ssh_conn = self._app_db.get_connection(conn_id)
+            if ssh_conn:
+                parts.append(ssh_conn.host.replace(".", "_"))
+        # База
+        if self._db_conn.current_database:
+            parts.append(self._db_conn.current_database)
+        # Таблица (если открыта конкретная таблица)
+        if self._table_view._table_name:
+            parts.append(self._table_view._table_name)
+        # Дата-время
+        parts.append(datetime.now().strftime("%Y-%m-%d_%H-%M"))
+
+        base_name = "_".join(parts) if parts else "export"
+
         if fmt == "csv":
             ext = "CSV (*.csv)"
-            default_name = "export.csv"
+            default_name = f"{base_name}.csv"
         else:
             ext = "JSON (*.json)"
-            default_name = "export.json"
+            default_name = f"{base_name}.json"
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Экспорт результата", default_name, ext,
