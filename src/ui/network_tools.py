@@ -56,7 +56,7 @@ class _NetSignals(QObject):
 
 
 class _NetWorker(QRunnable):
-    """Воркер для выполнения сетевой команды."""
+    """Воркер для выполнения сетевой команды с возможностью остановки."""
 
     def __init__(
         self,
@@ -67,7 +67,30 @@ class _NetWorker(QRunnable):
         self.signals = _NetSignals()
         self._command = command
         self._conn = conn
+        self._stop_event = threading.Event()
+        self._process: subprocess.Popen | None = None
+        self._ssh_client = None
         self.setAutoDelete(True)
+
+    def stop(self) -> None:
+        """Остановить выполнение."""
+        self._stop_event.set()
+        # Убить локальный процесс
+        if self._process and self._process.poll() is None:
+            try:
+                self._process.terminate()
+                self._process.wait(timeout=2)
+            except Exception:
+                try:
+                    self._process.kill()
+                except Exception:
+                    pass
+        # Закрыть SSH
+        if self._ssh_client:
+            try:
+                self._ssh_client.close()
+            except Exception:
+                pass
 
     @Slot()
     def run(self) -> None:
@@ -77,13 +100,18 @@ class _NetWorker(QRunnable):
                 result = self._run_ssh()
             else:
                 result = self._run_local()
+
+            if self._stop_event.is_set():
+                result = "Остановлено пользователем."
+
             try:
                 self.signals.output.emit(result)
             except RuntimeError:
                 pass
         except Exception as e:
+            msg = "Остановлено." if self._stop_event.is_set() else f"Ошибка: {e}"
             try:
-                self.signals.output.emit(f"Ошибка: {e}")
+                self.signals.output.emit(msg)
             except RuntimeError:
                 pass
         finally:
@@ -93,15 +121,20 @@ class _NetWorker(QRunnable):
                 pass
 
     def _run_local(self) -> str:
-        """Выполнить локально."""
-        proc = subprocess.run(
+        """Выполнить локально через Popen."""
+        self._process = subprocess.Popen(
             self._command,
             shell=True,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=60,
         )
-        return proc.stdout if proc.stdout else proc.stderr
+        try:
+            out, err = self._process.communicate(timeout=120)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+            out, err = self._process.communicate()
+        return out if out else err
 
     def _run_ssh(self) -> str:
         """Выполнить через SSH."""
@@ -109,6 +142,7 @@ class _NetWorker(QRunnable):
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self._ssh_client = client
 
         kwargs: dict = {
             "hostname": self._conn.host,
@@ -127,10 +161,11 @@ class _NetWorker(QRunnable):
             kwargs["key_filename"] = self._conn.ssh_key_path
 
         client.connect(**kwargs)
-        _, stdout, stderr = client.exec_command(self._command, timeout=60)
+        _, stdout, stderr = client.exec_command(self._command, timeout=120)
         out = stdout.read().decode("utf-8", errors="replace")
         err = stderr.read().decode("utf-8", errors="replace")
         client.close()
+        self._ssh_client = None
         return out if out else err
 
 
@@ -235,6 +270,9 @@ class NetworkToolsWidget(QWidget):
         self._thread_pool = QThreadPool()
         self._thread_pool.setMaxThreadCount(5)
         self._scan_worker: _PortScanWorker | None = None
+        self._ping_worker: _NetWorker | None = None
+        self._trace_worker: _NetWorker | None = None
+        self._dns_worker: _NetWorker | None = None
 
         self._setup_ui()
 
@@ -310,15 +348,26 @@ class NetworkToolsWidget(QWidget):
         self._ping_count.setValue(4)
         params.addWidget(self._ping_count)
 
-        ping_btn = QPushButton("Ping")
-        ping_btn.setStyleSheet(
+        self._ping_btn = QPushButton("Ping")
+        self._ping_btn.setStyleSheet(
             "QPushButton { background: #10B981; color: white;"
             " border: none; border-radius: 4px;"
             " padding: 6px 16px; font-weight: bold; }"
             "QPushButton:hover { background: #059669; }"
         )
-        ping_btn.clicked.connect(self._run_ping)
-        params.addWidget(ping_btn)
+        self._ping_btn.clicked.connect(self._run_ping)
+        params.addWidget(self._ping_btn)
+
+        self._ping_stop_btn = QPushButton("Стоп")
+        self._ping_stop_btn.setStyleSheet(
+            "QPushButton { background: #6B7280; color: white;"
+            " border: none; border-radius: 4px;"
+            " padding: 6px 16px; font-weight: bold; }"
+            "QPushButton:hover { background: #4B5563; }"
+        )
+        self._ping_stop_btn.setEnabled(False)
+        self._ping_stop_btn.clicked.connect(self._stop_ping)
+        params.addWidget(self._ping_stop_btn)
 
         layout.addLayout(params)
 
@@ -340,9 +389,25 @@ class NetworkToolsWidget(QWidget):
         cmd = f"ping -c {count} {host}"
 
         self._ping_output.setPlainText(f"Выполняется: {cmd}...")
+        self._ping_btn.setEnabled(False)
+        self._ping_stop_btn.setEnabled(True)
+
         worker = _NetWorker(cmd, self._get_conn())
         worker.signals.output.connect(self._ping_output.setPlainText)
+        worker.signals.finished.connect(self._on_ping_finished)
+        self._ping_worker = worker
         self._thread_pool.start(worker)
+
+    def _stop_ping(self) -> None:
+        """Остановить ping."""
+        if self._ping_worker:
+            self._ping_worker.stop()
+
+    def _on_ping_finished(self) -> None:
+        """Ping завершён."""
+        self._ping_btn.setEnabled(True)
+        self._ping_stop_btn.setEnabled(False)
+        self._ping_worker = None
 
     # --- Traceroute ---
 
@@ -358,15 +423,26 @@ class NetworkToolsWidget(QWidget):
         self._trace_host.returnPressed.connect(self._run_traceroute)
         params.addWidget(self._trace_host, stretch=1)
 
-        trace_btn = QPushButton("Traceroute")
-        trace_btn.setStyleSheet(
+        self._trace_btn = QPushButton("Traceroute")
+        self._trace_btn.setStyleSheet(
             "QPushButton { background: #3B82F6; color: white;"
             " border: none; border-radius: 4px;"
             " padding: 6px 16px; font-weight: bold; }"
             "QPushButton:hover { background: #2563EB; }"
         )
-        trace_btn.clicked.connect(self._run_traceroute)
-        params.addWidget(trace_btn)
+        self._trace_btn.clicked.connect(self._run_traceroute)
+        params.addWidget(self._trace_btn)
+
+        self._trace_stop_btn = QPushButton("Стоп")
+        self._trace_stop_btn.setStyleSheet(
+            "QPushButton { background: #6B7280; color: white;"
+            " border: none; border-radius: 4px;"
+            " padding: 6px 16px; font-weight: bold; }"
+            "QPushButton:hover { background: #4B5563; }"
+        )
+        self._trace_stop_btn.setEnabled(False)
+        self._trace_stop_btn.clicked.connect(self._stop_traceroute)
+        params.addWidget(self._trace_stop_btn)
 
         layout.addLayout(params)
 
@@ -395,9 +471,25 @@ class NetworkToolsWidget(QWidget):
         ).format(h=host)
 
         self._trace_output.setPlainText(f"Выполняется traceroute {host}...")
+        self._trace_btn.setEnabled(False)
+        self._trace_stop_btn.setEnabled(True)
+
         worker = _NetWorker(cmd, self._get_conn())
         worker.signals.output.connect(self._trace_output.setPlainText)
+        worker.signals.finished.connect(self._on_trace_finished)
+        self._trace_worker = worker
         self._thread_pool.start(worker)
+
+    def _stop_traceroute(self) -> None:
+        """Остановить traceroute."""
+        if self._trace_worker:
+            self._trace_worker.stop()
+
+    def _on_trace_finished(self) -> None:
+        """Traceroute завершён."""
+        self._trace_btn.setEnabled(True)
+        self._trace_stop_btn.setEnabled(False)
+        self._trace_worker = None
 
     # --- DNS ---
 
@@ -418,15 +510,26 @@ class NetworkToolsWidget(QWidget):
         self._dns_type.addItems(["A", "AAAA", "MX", "NS", "TXT", "CNAME", "SOA", "PTR"])
         params.addWidget(self._dns_type)
 
-        dns_btn = QPushButton("Lookup")
-        dns_btn.setStyleSheet(
+        self._dns_btn = QPushButton("Lookup")
+        self._dns_btn.setStyleSheet(
             "QPushButton { background: #8B5CF6; color: white;"
             " border: none; border-radius: 4px;"
             " padding: 6px 16px; font-weight: bold; }"
             "QPushButton:hover { background: #7C3AED; }"
         )
-        dns_btn.clicked.connect(self._run_dns)
-        params.addWidget(dns_btn)
+        self._dns_btn.clicked.connect(self._run_dns)
+        params.addWidget(self._dns_btn)
+
+        self._dns_stop_btn = QPushButton("Стоп")
+        self._dns_stop_btn.setStyleSheet(
+            "QPushButton { background: #6B7280; color: white;"
+            " border: none; border-radius: 4px;"
+            " padding: 6px 16px; font-weight: bold; }"
+            "QPushButton:hover { background: #4B5563; }"
+        )
+        self._dns_stop_btn.setEnabled(False)
+        self._dns_stop_btn.clicked.connect(self._stop_dns)
+        params.addWidget(self._dns_stop_btn)
 
         layout.addLayout(params)
 
@@ -450,9 +553,25 @@ class NetworkToolsWidget(QWidget):
         cmd = f"dig {host} {record_type} +short 2>/dev/null || nslookup -type={record_type} {host}"
 
         self._dns_output.setPlainText(f"Запрос: {host} ({record_type})...")
+        self._dns_btn.setEnabled(False)
+        self._dns_stop_btn.setEnabled(True)
+
         worker = _NetWorker(cmd, self._get_conn())
         worker.signals.output.connect(self._dns_output.setPlainText)
+        worker.signals.finished.connect(self._on_dns_finished)
+        self._dns_worker = worker
         self._thread_pool.start(worker)
+
+    def _stop_dns(self) -> None:
+        """Остановить DNS lookup."""
+        if self._dns_worker:
+            self._dns_worker.stop()
+
+    def _on_dns_finished(self) -> None:
+        """DNS lookup завершён."""
+        self._dns_btn.setEnabled(True)
+        self._dns_stop_btn.setEnabled(False)
+        self._dns_worker = None
 
     # --- Порты ---
 
@@ -642,6 +761,10 @@ class NetworkToolsWidget(QWidget):
 
     def cleanup(self) -> None:
         """Очистка при закрытии."""
-        if self._scan_worker:
-            self._scan_worker.stop()
-        self._thread_pool.waitForDone(1000)
+        for worker in (
+            self._ping_worker, self._trace_worker,
+            self._dns_worker, self._scan_worker,
+        ):
+            if worker:
+                worker.stop()
+        self._thread_pool.waitForDone(2000)
