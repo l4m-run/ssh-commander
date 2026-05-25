@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Docker SSH (test)",
+    "host": "localhost",
+    "port": 2222,
+    "username": "testuser",
+    "password": "testpass",
+    "group_name": "Docker Test"
+  }
+]

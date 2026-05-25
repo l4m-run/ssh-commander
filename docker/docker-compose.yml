@@ -1,0 +1,42 @@
+version: '3.8'
+
+# Тестовое окружение для проверки менеджера БД
+# Запуск: docker-compose -f docker/docker-compose.yml up -d
+# Остановка: docker-compose -f docker/docker-compose.yml down -v
+
+services:
+  ssh-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.ssh
+    ports:
+      - "2222:22"
+    networks:
+      - dbnet
+    depends_on:
+      - postgres
+      - mysql
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: pgpass123
+      POSTGRES_DB: testdb
+    volumes:
+      - ./init-pg.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - dbnet
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: mypass123
+      MYSQL_DATABASE: testdb
+    volumes:
+      - ./init-mysql.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - dbnet
+
+networks:
+  dbnet:

@@ -52,6 +52,7 @@ from src.models.connection import Connection
 from src.ui.command_panel import CommandPanel
 from src.ui.connection_dialog import ConnectionDialog
 from src.ui.file_manager import FileManager
+from src.ui.db_browser import DatabaseBrowser
 from src.ui.terminal_widget import TerminalWidget
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class MainWindow(QMainWindow):
         self._db = db
         self._sessions: dict[int, SSHSession] = {}
         self._file_managers: list[FileManager] = []
+        self._db_browsers: list[DatabaseBrowser] = []
 
         self.setWindowTitle("SSH Commander")
         self.setMinimumSize(1024, 600)
@@ -104,6 +106,11 @@ class MainWindow(QMainWindow):
         files_action.setShortcut("Ctrl+F")
         files_action.triggered.connect(self._open_file_manager)
         toolbar.addAction(files_action)
+
+        db_action = QAction("Базы данных", self)
+        db_action.setShortcut("Ctrl+D")
+        db_action.triggered.connect(self._open_db_browser)
+        toolbar.addAction(db_action)
 
         # Spacer + смена пароля (справа)
         from PySide6.QtWidgets import QSizePolicy
@@ -737,11 +744,30 @@ class MainWindow(QMainWindow):
         tab_idx = self._tabs.addTab(fm, "Файлы")
         self._tabs.setCurrentIndex(tab_idx)
 
+    def _open_db_browser(self) -> None:
+        """Открыть браузер баз данных как новую вкладку."""
+        # Если уже есть открытая вкладка БД, переключиться на неё
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), DatabaseBrowser):
+                self._tabs.setCurrentIndex(i)
+                return
+
+        db_browser = DatabaseBrowser(self._db)
+        self._db_browsers.append(db_browser)
+
+        # Удаляем placeholder если он есть
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(db_browser, "Базы данных")
+        self._tabs.setCurrentIndex(tab_idx)
+
     def _show_connections(self) -> None:
         """Переключиться на режим подключений."""
-        # Ищем первую не-файловую вкладку (терминал или placeholder)
+        # Ищем первую не-файловую и не-БД вкладку (терминал или placeholder)
         for i in range(self._tabs.count()):
-            if not isinstance(self._tabs.widget(i), FileManager):
+            widget = self._tabs.widget(i)
+            if not isinstance(widget, (FileManager, DatabaseBrowser)):
                 self._tabs.setCurrentIndex(i)
                 return
         # Если все вкладки - файлы, создаём placeholder
@@ -841,5 +867,7 @@ class MainWindow(QMainWindow):
             session.wait(1000)
         for fm in self._file_managers:
             fm.cleanup()
+        for db_br in self._db_browsers:
+            db_br.cleanup()
         self._db.close()
         event.accept()
