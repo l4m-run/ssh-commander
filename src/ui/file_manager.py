@@ -200,6 +200,8 @@ class FileManager(QWidget):
         )
         if not files:
             return
+        # Сохраняем панель назначения для retry
+        self._dest_panel = dest_panel
 
         # Создаём worker
         self._worker = TransferWorker()
@@ -362,13 +364,53 @@ class FileManager(QWidget):
         self._progress_bar.setValue(completed)
 
     def _on_task_error(self, task_id: int, error: str) -> None:
-        """Ошибка задачи."""
+        """Ошибка задачи с предложением повторить."""
         task = self._active_tasks.pop(task_id, None)
-        name = os.path.basename(task.source_path) if task else "?"
-        QMessageBox.warning(
-            self, "Ошибка передачи",
-            f"Файл: {name}\nОшибка: {error}",
+        if not task:
+            return
+
+        name = os.path.basename(task.source_path)
+        retries_info = ""
+        if task.retries > 0:
+            retries_info = f"\nПопыток: {task.retries}/{task.max_retries}"
+
+        reply = QMessageBox.question(
+            self,
+            "Ошибка передачи",
+            f"Файл: {name}\nОшибка: {error}{retries_info}"
+            "\n\nПовторить передачу?",
+            QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Abort,
+            QMessageBox.StandardButton.Retry,
         )
+
+        if reply == QMessageBox.StandardButton.Retry:
+            self._retry_task(task)
+
+    def _retry_task(self, task: TransferTask) -> None:
+        """Повторить передачу задачи с докачкой."""
+        task.resume = True
+        task.retries = 0
+        task.status = "pending"
+        task.error = ""
+
+        worker = TransferWorker()
+        worker.progress.connect(self._on_progress)
+        worker.task_completed.connect(self._on_task_completed)
+        worker.task_error.connect(self._on_task_error)
+        worker.all_completed.connect(
+            lambda: self._on_all_completed(self._dest_panel)
+        )
+
+        task_id = worker.add_task(task)
+        self._active_tasks[task_id] = task
+
+        self._progress_bar.setVisible(True)
+        self._progress_bar.setMaximum(1)
+        self._progress_bar.setValue(0)
+        self._progress_label.setText(f"Повтор: {os.path.basename(task.source_path)}")
+
+        worker.start()
+        self._worker = worker
 
     def _on_all_completed(self, dest_panel: FilePanel) -> None:
         """Все задачи завершены."""
