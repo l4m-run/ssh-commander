@@ -58,6 +58,9 @@ from src.ui.docker_widget import DockerManagerWidget
 from src.ui.mass_command import MassCommandWidget
 from src.ui.network_tools import NetworkToolsWidget
 from src.ui.secret_manager import SecretManager
+from src.ui.server_info import ServerInfoWidget
+from src.ui.ssh_tunnels import SshTunnelWidget
+from src.ui.systemd_widget import SystemdWidget
 from src.ui.terminal_widget import TerminalWidget
 
 logger = logging.getLogger(__name__)
@@ -142,6 +145,21 @@ class MainWindow(QMainWindow):
         diff_action.setShortcut("Ctrl+Shift+F")
         diff_action.triggered.connect(self._open_diff_viewer)
         toolbar.addAction(diff_action)
+
+        info_action = QAction("Инфо", self)
+        info_action.setShortcut("Ctrl+Shift+I")
+        info_action.triggered.connect(self._open_server_info)
+        toolbar.addAction(info_action)
+
+        tunnel_action = QAction("Туннели", self)
+        tunnel_action.setShortcut("Ctrl+Shift+T")
+        tunnel_action.triggered.connect(self._open_ssh_tunnels)
+        toolbar.addAction(tunnel_action)
+
+        systemd_action = QAction("Сервисы", self)
+        systemd_action.setShortcut("Ctrl+Shift+Y")
+        systemd_action.triggered.connect(self._open_systemd)
+        toolbar.addAction(systemd_action)
 
         # Spacer + кнопки справа
         from PySide6.QtWidgets import QSizePolicy
@@ -513,7 +531,8 @@ class MainWindow(QMainWindow):
         hide_panels = isinstance(
             widget, (FileManager, DatabaseBrowser, SecretManager,
                      MassCommandWidget, DockerManagerWidget,
-                     NetworkToolsWidget, DiffViewerWidget)
+                     NetworkToolsWidget, DiffViewerWidget,
+                     ServerInfoWidget, SshTunnelWidget, SystemdWidget)
         )
         self._sidebar.setVisible(not hide_panels)
         self._command_panel.setVisible(not hide_panels)
@@ -997,6 +1016,51 @@ class MainWindow(QMainWindow):
         tab_idx = self._tabs.addTab(dv, "Сравнение")
         self._tabs.setCurrentIndex(tab_idx)
 
+    def _open_server_info(self) -> None:
+        """Открыть системную информацию."""
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), ServerInfoWidget):
+                self._tabs.setCurrentIndex(i)
+                return
+
+        si = ServerInfoWidget(self._db)
+
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(si, "Инфо")
+        self._tabs.setCurrentIndex(tab_idx)
+
+    def _open_ssh_tunnels(self) -> None:
+        """Открыть SSH-туннели."""
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), SshTunnelWidget):
+                self._tabs.setCurrentIndex(i)
+                return
+
+        tw = SshTunnelWidget(self._db)
+
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(tw, "Туннели")
+        self._tabs.setCurrentIndex(tab_idx)
+
+    def _open_systemd(self) -> None:
+        """Открыть Systemd-менеджер."""
+        for i in range(self._tabs.count()):
+            if isinstance(self._tabs.widget(i), SystemdWidget):
+                self._tabs.setCurrentIndex(i)
+                return
+
+        sw = SystemdWidget(self._db)
+
+        if self._tabs.count() == 1 and self._tabs.widget(0) == self._empty_label:
+            self._tabs.removeTab(0)
+
+        tab_idx = self._tabs.addTab(sw, "Сервисы")
+        self._tabs.setCurrentIndex(tab_idx)
+
     def _show_connections(self) -> None:
         """Переключиться на режим подключений."""
         for i in range(self._tabs.count()):
@@ -1004,7 +1068,8 @@ class MainWindow(QMainWindow):
             if not isinstance(
                 widget, (FileManager, DatabaseBrowser, SecretManager,
                          MassCommandWidget, DockerManagerWidget,
-                         NetworkToolsWidget, DiffViewerWidget)
+                         NetworkToolsWidget, DiffViewerWidget,
+                         ServerInfoWidget, SshTunnelWidget, SystemdWidget)
             ):
                 self._tabs.setCurrentIndex(i)
                 return
@@ -1502,5 +1567,12 @@ class MainWindow(QMainWindow):
             fm.cleanup()
         for db_br in self._db_browsers:
             db_br.cleanup()
+        # Cleanup новых виджетов
+        for i in range(self._tabs.count()):
+            w = self._tabs.widget(i)
+            if isinstance(w, (ServerInfoWidget, SshTunnelWidget,
+                              SystemdWidget, DockerManagerWidget,
+                              NetworkToolsWidget, DiffViewerWidget)):
+                w.cleanup()
         self._db.close()
         event.accept()
