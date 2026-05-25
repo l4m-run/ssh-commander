@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import socket
 import subprocess
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QRadioButton,
     QSpinBox,
@@ -49,6 +51,7 @@ class _NetSignals(QObject):
     """Сигналы сетевых утилит."""
 
     output = Signal(str)  # текстовый результат
+    progress = Signal(int, int, str)  # current, total, info
     finished = Signal()
 
 
@@ -123,14 +126,14 @@ class _NetWorker(QRunnable):
 
 
 class _PortScanWorker(QRunnable):
-    """Воркер для сканирования портов."""
+    """Воркер для сканирования портов с прогрессом и остановкой."""
 
     def __init__(
         self,
         host: str,
         start_port: int,
         end_port: int,
-        timeout: float = 1.0,
+        timeout: float = 0.5,
     ) -> None:
         super().__init__()
         self.signals = _NetSignals()
@@ -138,7 +141,12 @@ class _PortScanWorker(QRunnable):
         self._start = start_port
         self._end = end_port
         self._timeout = timeout
+        self._stop_event = threading.Event()
         self.setAutoDelete(True)
+
+    def stop(self) -> None:
+        """Остановить сканирование."""
+        self._stop_event.set()
 
     @Slot()
     def run(self) -> None:
@@ -146,7 +154,17 @@ class _PortScanWorker(QRunnable):
         results = []
         total = self._end - self._start + 1
 
-        for port in range(self._start, self._end + 1):
+        for i, port in enumerate(range(self._start, self._end + 1)):
+            if self._stop_event.is_set():
+                self.signals.progress.emit(i, total, "Остановлено")
+                break
+
+            # Прогресс каждые 10 портов
+            if i % 10 == 0:
+                self.signals.progress.emit(
+                    i, total, f"Сканирование {port}...",
+                )
+
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(self._timeout)
@@ -157,18 +175,38 @@ class _PortScanWorker(QRunnable):
                     except OSError:
                         service = ""
                     results.append(f"  {port}/tcp  open  {service}")
+                    # Сразу показываем найденный порт
+                    self.signals.progress.emit(
+                        i, total,
+                        f"Найден: {port}/tcp ({service})" if service
+                        else f"Найден: {port}/tcp",
+                    )
                 sock.close()
             except Exception:
                 pass
 
-        if results:
-            header = f"Открытые порты на {self._host} ({self._start}-{self._end}):\n"
-            self.signals.output.emit(header + "\n".join(results))
-        else:
-            self.signals.output.emit(
-                f"Открытых портов на {self._host} "
-                f"({self._start}-{self._end}) не найдено."
+        # Финальный прогресс
+        self.signals.progress.emit(total, total, "Завершено")
+
+        if self._stop_event.is_set():
+            header = (
+                f"Сканирование ОСТАНОВЛЕНО. "
+                f"Проверено {i}/{total} портов.\n"
             )
+        else:
+            header = (
+                f"Сканирование завершено. "
+                f"Хост: {self._host} ({self._start}-{self._end})\n"
+            )
+
+        if results:
+            self.signals.output.emit(
+                header + f"Открытых портов: {len(results)}\n\n"
+                + "\n".join(results)
+            )
+        else:
+            self.signals.output.emit(header + "Открытых портов не найдено.")
+
         self.signals.finished.emit()
 
 
@@ -187,6 +225,7 @@ class NetworkToolsWidget(QWidget):
         self._app_db = app_db
         self._thread_pool = QThreadPool()
         self._thread_pool.setMaxThreadCount(5)
+        self._scan_worker: _PortScanWorker | None = None
 
         self._setup_ui()
 
@@ -332,13 +371,21 @@ class NetworkToolsWidget(QWidget):
         return widget
 
     def _run_traceroute(self) -> None:
-        """Запустить traceroute."""
+        """Запустить traceroute (fallback: tracepath, mtr)."""
         host = self._trace_host.text().strip()
         if not host:
             return
-        cmd = f"traceroute {host}"
 
-        self._trace_output.setPlainText(f"Выполняется: {cmd}...")
+        # traceroute -> tracepath -> mtr (первый доступный)
+        cmd = (
+            "command -v traceroute > /dev/null 2>&1 && traceroute {h} || "
+            "(command -v tracepath > /dev/null 2>&1 && tracepath {h} || "
+            "(command -v mtr > /dev/null 2>&1 && mtr --report --report-cycles 3 {h} || "
+            "echo 'Не найден traceroute/tracepath/mtr. "
+            "Установите: sudo apt install traceroute'))"
+        ).format(h=host)
+
+        self._trace_output.setPlainText(f"Выполняется traceroute {host}...")
         worker = _NetWorker(cmd, self._get_conn())
         worker.signals.output.connect(self._trace_output.setPlainText)
         self._thread_pool.start(worker)
@@ -445,18 +492,43 @@ class NetworkToolsWidget(QWidget):
         self._port_end.setValue(1024)
         scan_row.addWidget(self._port_end)
 
-        scan_btn = QPushButton("Сканировать")
-        scan_btn.setStyleSheet(
+        self._scan_btn = QPushButton("Сканировать")
+        self._scan_btn.setStyleSheet(
             "QPushButton { background: #EF4444; color: white;"
             " border: none; border-radius: 4px;"
             " padding: 6px 16px; font-weight: bold; }"
             "QPushButton:hover { background: #DC2626; }"
         )
-        scan_btn.clicked.connect(self._scan_ports)
-        scan_row.addWidget(scan_btn)
+        self._scan_btn.clicked.connect(self._scan_ports)
+        scan_row.addWidget(self._scan_btn)
+
+        self._stop_scan_btn = QPushButton("Остановить")
+        self._stop_scan_btn.setStyleSheet(
+            "QPushButton { background: #6B7280; color: white;"
+            " border: none; border-radius: 4px;"
+            " padding: 6px 16px; font-weight: bold; }"
+            "QPushButton:hover { background: #4B5563; }"
+        )
+        self._stop_scan_btn.setEnabled(False)
+        self._stop_scan_btn.clicked.connect(self._stop_scan)
+        scan_row.addWidget(self._stop_scan_btn)
 
         scan_row.addStretch()
         layout.addLayout(scan_row)
+
+        # Прогресс-бар
+        progress_row = QHBoxLayout()
+        self._scan_progress = QProgressBar()
+        self._scan_progress.setMaximumHeight(18)
+        self._scan_progress.setTextVisible(True)
+        self._scan_progress.setValue(0)
+        progress_row.addWidget(self._scan_progress)
+
+        self._scan_status = QLabel("")
+        self._scan_status.setStyleSheet("font-size: 12px; color: #6B7280;")
+        progress_row.addWidget(self._scan_status)
+
+        layout.addLayout(progress_row)
 
         self._port_output = QPlainTextEdit()
         self._port_output.setReadOnly(True)
@@ -520,14 +592,47 @@ class NetworkToolsWidget(QWidget):
             )
             return
 
+        total = end_port - start_port + 1
+        self._scan_progress.setMaximum(total)
+        self._scan_progress.setValue(0)
+        self._scan_status.setText(f"0/{total}")
         self._port_output.setPlainText(
             f"Сканирование {host} ({start_port}-{end_port})..."
         )
 
+        # UI: кнопки
+        self._scan_btn.setEnabled(False)
+        self._stop_scan_btn.setEnabled(True)
+
         worker = _PortScanWorker(host, start_port, end_port)
+        worker.signals.progress.connect(self._on_scan_progress)
         worker.signals.output.connect(self._port_output.setPlainText)
+        worker.signals.finished.connect(self._on_scan_finished)
+        self._scan_worker = worker
         self._thread_pool.start(worker)
+
+    @Slot(int, int, str)
+    def _on_scan_progress(
+        self, current: int, total: int, info: str,
+    ) -> None:
+        """Обновить прогресс сканирования."""
+        self._scan_progress.setValue(current)
+        self._scan_status.setText(f"{current}/{total}  {info}")
+
+    def _on_scan_finished(self) -> None:
+        """Сканирование завершено."""
+        self._scan_btn.setEnabled(True)
+        self._stop_scan_btn.setEnabled(False)
+        self._scan_worker = None
+
+    def _stop_scan(self) -> None:
+        """Остановить сканирование."""
+        if self._scan_worker:
+            self._scan_worker.stop()
+            self._scan_status.setText("Остановка...")
 
     def cleanup(self) -> None:
         """Очистка при закрытии."""
+        if self._scan_worker:
+            self._scan_worker.stop()
         self._thread_pool.waitForDone(1000)

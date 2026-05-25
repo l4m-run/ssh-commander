@@ -85,16 +85,22 @@ class DiffViewerWidget(QWidget):
         self._left_source = QComboBox()
         self._left_source.addItem("Локальный файл", "local")
         self._fill_ssh_sources(self._left_source)
+        self._left_source.currentIndexChanged.connect(
+            self._update_left_browse_hint
+        )
         left_header.addWidget(self._left_source, stretch=1)
 
         self._left_path = QLineEdit()
         self._left_path.setPlaceholderText("Путь к файлу")
         left_header.addWidget(self._left_path, stretch=2)
 
-        left_browse = QPushButton("...")
-        left_browse.setMaximumWidth(30)
-        left_browse.clicked.connect(self._browse_left)
-        left_header.addWidget(left_browse)
+        self._left_browse_btn = QPushButton("Обзор")
+        self._left_browse_btn.setMinimumWidth(60)
+        self._left_browse_btn.setStyleSheet(
+            "QPushButton { padding: 4px 8px; }"
+        )
+        self._left_browse_btn.clicked.connect(self._browse_left)
+        left_header.addWidget(self._left_browse_btn)
 
         left_load = QPushButton("Загрузить")
         left_load.setStyleSheet(
@@ -107,6 +113,14 @@ class DiffViewerWidget(QWidget):
         left_header.addWidget(left_load)
 
         left_layout.addLayout(left_header)
+
+        # Подсказка для SSH
+        self._left_hint = QLabel("")
+        self._left_hint.setStyleSheet(
+            "font-size: 11px; color: #6B7280; padding-left: 4px;"
+        )
+        left_layout.addWidget(self._left_hint)
+        self._update_left_browse_hint()
 
         self._left_text = QPlainTextEdit()
         self._left_text.setReadOnly(True)
@@ -128,16 +142,22 @@ class DiffViewerWidget(QWidget):
         self._right_source = QComboBox()
         self._right_source.addItem("Локальный файл", "local")
         self._fill_ssh_sources(self._right_source)
+        self._right_source.currentIndexChanged.connect(
+            self._update_right_browse_hint
+        )
         right_header.addWidget(self._right_source, stretch=1)
 
         self._right_path = QLineEdit()
         self._right_path.setPlaceholderText("Путь к файлу")
         right_header.addWidget(self._right_path, stretch=2)
 
-        right_browse = QPushButton("...")
-        right_browse.setMaximumWidth(30)
-        right_browse.clicked.connect(self._browse_right)
-        right_header.addWidget(right_browse)
+        self._right_browse_btn = QPushButton("Обзор")
+        self._right_browse_btn.setMinimumWidth(60)
+        self._right_browse_btn.setStyleSheet(
+            "QPushButton { padding: 4px 8px; }"
+        )
+        self._right_browse_btn.clicked.connect(self._browse_right)
+        right_header.addWidget(self._right_browse_btn)
 
         right_load = QPushButton("Загрузить")
         right_load.setStyleSheet(
@@ -150,6 +170,14 @@ class DiffViewerWidget(QWidget):
         right_header.addWidget(right_load)
 
         right_layout.addLayout(right_header)
+
+        # Подсказка для SSH
+        self._right_hint = QLabel("")
+        self._right_hint.setStyleSheet(
+            "font-size: 11px; color: #6B7280; padding-left: 4px;"
+        )
+        right_layout.addWidget(self._right_hint)
+        self._update_right_browse_hint()
 
         self._right_text = QPlainTextEdit()
         self._right_text.setReadOnly(True)
@@ -200,6 +228,32 @@ class DiffViewerWidget(QWidget):
         for conn in connections:
             label = f"SSH: {conn.name} ({conn.host})"
             combo.addItem(label, conn.id)
+
+    def _update_left_browse_hint(self) -> None:
+        """Обновить подсказку и кнопку обзора для левой панели."""
+        is_local = self._left_source.currentData() == "local"
+        self._left_browse_btn.setEnabled(is_local)
+        if is_local:
+            self._left_hint.setText("")
+            self._left_path.setPlaceholderText("Путь к файлу")
+        else:
+            self._left_hint.setText(
+                "Введите абсолютный путь на сервере, например: /etc/nginx/nginx.conf"
+            )
+            self._left_path.setPlaceholderText("/etc/nginx/nginx.conf")
+
+    def _update_right_browse_hint(self) -> None:
+        """Обновить подсказку и кнопку обзора для правой панели."""
+        is_local = self._right_source.currentData() == "local"
+        self._right_browse_btn.setEnabled(is_local)
+        if is_local:
+            self._right_hint.setText("")
+            self._right_path.setPlaceholderText("Путь к файлу")
+        else:
+            self._right_hint.setText(
+                "Введите абсолютный путь на сервере, например: /etc/nginx/nginx.conf"
+            )
+            self._right_path.setPlaceholderText("/etc/nginx/nginx.conf")
 
     def _browse_left(self) -> None:
         """Выбрать локальный файл для левой стороны."""
@@ -342,24 +396,24 @@ class DiffViewerWidget(QWidget):
         self._diff_output.clear()
         cursor = self._diff_output.textCursor()
 
-        # Форматы
+        # Форматы (светлая тема)
         fmt_add = QTextCharFormat()
-        fmt_add.setForeground(QColor("#22C55E"))
-        fmt_add.setBackground(QColor("#052E16"))
+        fmt_add.setForeground(QColor("#166534"))
+        fmt_add.setBackground(QColor("#DCFCE7"))
 
         fmt_del = QTextCharFormat()
-        fmt_del.setForeground(QColor("#EF4444"))
-        fmt_del.setBackground(QColor("#450A0A"))
+        fmt_del.setForeground(QColor("#991B1B"))
+        fmt_del.setBackground(QColor("#FEE2E2"))
 
         fmt_header = QTextCharFormat()
-        fmt_header.setForeground(QColor("#3B82F6"))
+        fmt_header.setForeground(QColor("#1D4ED8"))
         fmt_header.setFontWeight(QFont.Weight.Bold)
 
         fmt_range = QTextCharFormat()
-        fmt_range.setForeground(QColor("#A855F7"))
+        fmt_range.setForeground(QColor("#7C3AED"))
 
         fmt_normal = QTextCharFormat()
-        fmt_normal.setForeground(QColor("#D4D4D4"))
+        fmt_normal.setForeground(QColor("#374151"))
 
         # Считаем изменения
         added = sum(1 for line in diff if line.startswith("+")
